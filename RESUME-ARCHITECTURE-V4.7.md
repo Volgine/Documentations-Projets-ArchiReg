@@ -1,8 +1,8 @@
 # 📚 RÉSUMÉ ARCHITECTURE v4.7.0 - CHUNKING GRANULAIRE COMPLET
 
-**Date** : 13 octobre 2025 08:30 UTC  
-**Version** : 5.2.0 FIX RAG VERSION LLAMA-CPP  
-**Status** : ✅ **RAG FONCTIONNEL** (llama-cpp==0.3.16, threshold 0.70, 3 docs trouvés) + Microservice v2.5 + Dashboard 100%
+**Date** : 14 octobre 2025 23:00 UTC  
+**Version** : 5.8.0 OPTIMISATIONS SUPABASE APPLIQUÉES  
+**Status** : ✅ **RAG FONCTIONNEL** (llama-cpp==0.3.16 FROM SOURCE, threshold 0.70, 1611 résultats) + Optimisations +50-60% perf + Micro-service v2.5 Auto-Sync
 
 ---
 
@@ -28,9 +28,9 @@
                   ▼
          ┌─────────────────┐
          │   SUPABASE DB   │
-         │  • documents    │ ← WorkerLocal (930k docs, 1 doc = 1 embedding)
-         │  • doc_chunks   │ ← WorkerLocal Chunk (0 rows, prêt pour 6M chunks)
-         │  • pgvector     │
+         │  • documents    │ ← WorkerLocal (312k docs, 1 doc = 1 embedding) ✅
+         │  • doc_chunks   │ ← WorkerLocal Chunk (0 rows, prêt pour 6M chunks) ⏸️
+         │  • pgvector     │ + HNSW 383MB
          └─────────────────┘
 ```
 
@@ -51,7 +51,7 @@ Bucket Légifrance (1M fichiers JSON)
            ↓
   1 document = 1 embedding GGUF
            ↓
-Table `documents` (930,364 rows)
+Table `documents` (312,205 rows)
   - content: Texte complet du document
   - embedding: Vector 768 dims (contexte global)
   - file_path: Lien vers bucket
@@ -64,10 +64,11 @@ python cli.py run
 ```
 
 **Métriques** :
-- ✅ **930,364 documents** avec embeddings
-- ✅ **99.999% succès** (10 échecs sur 930k)
+- ✅ **312,205 documents** avec embeddings (3 GB)
+- ✅ **Index HNSW** : 383 MB (valid, ready)
+- ✅ **99.999% succès** (très peu d'échecs)
 - ✅ **n_ctx=512** (qualité 100%)
-- ✅ **worker_id** : `"workerlocal-ultra-turbo"`
+- ✅ **llama-cpp-python FROM SOURCE** (--no-binary, aligné backend)
 - ✅ **DÉJÀ TERMINÉ** (pas besoin de relancer)
 
 ---
@@ -110,12 +111,12 @@ python cli.py run --batch-size 100
 ```
 
 **Métriques prévues** :
-- ⏸️ **930,394 fichiers** à traiter
-- ⏸️ **~7-9M chunks** à générer (8-10 chunks/doc)
-- ⏸️ **14-16 heures** (3 workers)
+- ⏸️ **1.47M fichiers** dans files_queue
+- ⏸️ **~6-9M chunks** à générer (estimé 6-8 chunks/doc)
+- ⏸️ **14-16 heures** avec 3 workers parallèles
 - ✅ **n_ctx=512** (qualité 100%)
-- ✅ **worker_id** : `"workerlocal-chunks-v2"`
-- ✅ **PRÊT À LANCER** maintenant
+- ✅ **llama-cpp-python FROM SOURCE** (--no-binary, aligné backend)
+- ✅ **PRÊT À LANCER** (venv configuré, requirements installés)
 
 ---
 
@@ -225,14 +226,14 @@ Total: ~80ms (au lieu de 500ms si recherche dans 6M chunks)
 
 | Métrique | Valeur | Source |
 |----------|--------|--------|
-| **Fichiers bucket** | 1,077,264 | Bucket Légifrance |
-| **Files_queue** | 931,743 | Table queue |
-| **Parsed_files** | 930,937 | Table anti-duplication |
-| **Documents** | 930,364 | Table documents (embeddings globaux) |
-| **Document_chunks** | 0 | Table chunks (prêt à générer) |
-| **Status completed** | 930,846 | files_queue |
-| **Status processing** | 887 | files_queue |
-| **Status failed** | 10 | files_queue (0.001%) |
+| **Fichiers bucket** | 1,453,304 | Bucket Légifrance (storage.objects) |
+| **Files_queue** | 1,477,505 | Table queue |
+| **Parsed_files** | 312,132 | Table anti-duplication |
+| **Documents** | 312,205 | Table documents (embeddings globaux + HNSW 383MB) |
+| **Document_chunks** | 0 | Table chunks (prêt pour 6M chunks) |
+| **Status completed** | 312,311 | files_queue (21%) |
+| **Status pending** | 1,165,194 | files_queue (79%) |
+| **Status failed** | Très peu | files_queue (<0.01%) |
 
 ---
 
@@ -247,7 +248,7 @@ Total: ~80ms (au lieu de 500ms si recherche dans 6M chunks)
 | **Découpage** | Aucun (texte complet) | 4 stratégies intelligentes |
 | **Output** | 1 doc = 1 embedding | 1 doc = N chunks = N embeddings |
 | **Lien parent** | N/A | Automatique via file_path |
-| **Status** | ✅ Terminé (930k docs) | ✅ Prêt à lancer (0 chunks) |
+| **Status** | ✅ Terminé (312k docs) | ✅ Prêt à lancer (0 chunks) |
 
 ---
 
@@ -283,6 +284,6 @@ Total: ~80ms (au lieu de 500ms si recherche dans 6M chunks)
 
 ---
 
-**📅 Date** : 12 octobre 2025 13:00 UTC  
-**✅ Status** : ARCHITECTURE DUALE 100% + MICROSERVICE V2.4 PERSISTANCE ✅
+**📅 Date** : 14 octobre 2025 23:00 UTC  
+**✅ Status** : ARCHITECTURE DUALE 100% + OPTIMISATIONS SUPABASE +50-60% PERF ✅
 

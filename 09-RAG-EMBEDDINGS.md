@@ -3,7 +3,7 @@
 **Date de création** : 11 octobre 2025  
 **Dernière mise à jour** : 13 octobre 2025 18:00 UTC  
 **Version** : 2.5 HNSW OPTIMISÉ  
-**Status** : ✅ **RAG ACTIF** - Index HNSW (1.4GB, 930k docs, <1s) + Optimisations Supabase (timeout 60s, ef_search 100)
+**Status** : ✅ **RAG ACTIF** - Index HNSW (383MB, 312k docs, <1s) + Optimisations Supabase (work_mem 8MB, cron 15min, index partiels)
 
 ---
 
@@ -22,12 +22,13 @@ graph TB
     end
     
     subgraph "2️⃣ TRAITEMENT: WORKERS LOCAUX"
-        B -->|Télécharge fichiers| C[Worker Local x3<br/>ACTUEL v1.0]
-        C -->|Parse + GGUF Embedding| D[(Table documents<br/>1 doc = 1 embedding contexte)]
-        D -->|Vecteurs 768 dims| E[pgvector extension]
+        B -->|files_queue| FQ[files_queue<br/>1.47M fichiers]
+        FQ -->|SELECT pending| C[WorkerLocal x3<br/>✅ TERMINÉ]
+        C -->|Parse + GGUF Embedding| D[(Table documents<br/>312k docs + embeddings)]
+        D -->|Vecteurs 768 dims| E[pgvector + HNSW 383MB]
         
-        H[Worker Local FUTUR<br/>v2.0 Chunking] -.->|Parse + Chunks| I[(Table document_chunks<br/>Embeddings granulaires)]
-        B -.->|Source future| H
+        FQ -.->|SELECT pending| H[WorkerLocal Chunk x3<br/>⏸️ PRÊT]
+        H -.->|Parse + Découpage| I[(Table document_chunks<br/>0 rows → 6M chunks)]
         I -.->|Vecteurs 768 dims| E
     end
     
@@ -601,9 +602,9 @@ sequenceDiagram
     U->>F: "Quelles sont les règles urbanisme ?"
     F->>O: /api/v3/chat/completions
     O->>R: Recherche sémantique automatique
-    R->>DB: Embedding query + recherche vectorielle
-    DB-->>R: 8 documents pertinents (distance < 0.70)
-    R-->>O: Top 5 documents + références légales
+    R->>DB: Embedding query + recherche vectorielle HNSW
+    DB-->>R: Documents pertinents (distance < 0.70, threshold optimisé)
+    R-->>O: Top documents + références légales
     O->>O: Injection contexte dans system prompt
     O->>LLM: Messages + contexte documentaire
     LLM-->>O: Réponse enrichie (streaming)
@@ -907,11 +908,14 @@ graph TB
         W3 -->|7c. UPDATE completed| FQ
     end
     
-    subgraph "TRAITEMENT NIVEAU 2: Chunks Granulaires FUTUR"
-        WC1[WorkerLocal Chunk 1] -.->|8. SELECT pending chunks| FQ
+    subgraph "TRAITEMENT NIVEAU 2: Chunks Granulaires ⏸️ PRÊT"
+        WC1[WorkerLocal Chunk 1] -.->|8. SELECT pending| FQ
+        WC2[WorkerLocal Chunk 2] -.->|8. SELECT pending| FQ
+        WC3[WorkerLocal Chunk 3] -.->|8. SELECT pending| FQ
         WC1 -.->|9. Download JSON| BKT
-        WC1 -.->|10. SELECT parent doc| DOCS
-        WC1 -.->|11. INSERT chunks + embeddings| CHK[Table: document_chunks<br/>FUTUR]
+        WC1 -.->|10. Lookup document_id| DOCS
+        WC1 -.->|11. Découpage 4 stratégies| WC1
+        WC1 -.->|12. INSERT chunks + embeddings| CHK[Table: document_chunks<br/>0 rows → 6M chunks]
     end
     
     subgraph "RECHERCHE SÉMANTIQUE"
@@ -962,7 +966,7 @@ CREATE INDEX idx_documents_embedding
 ON documents 
 USING ivfflat (embedding vector_cosine_ops) 
 WITH (lists = 100);
--- ✅ Recherche vectorielle en ~15-20ms sur 930k docs
+-- ✅ Recherche vectorielle en ~15-20ms sur 312k docs (index HNSW 383MB)
 ```
 
 ---
@@ -1264,7 +1268,7 @@ Question utilisateur: "Règles zone UA urbanisme?"
 4. ✅ Documentation : Architecture multi-index HNSW future (documents + document_chunks)
 
 **Index HNSW créés** :
-- ✅ `idx_documents_embedding_hnsw` : 1.4 GB, m=16, ef_construction=64, 930k docs
+- ✅ `idx_documents_embedding_hnsw` : 383 MB, m=16, ef_construction=64, 312k docs
 - ✅ `idx_document_chunks_embedding_hnsw` : 16 kB, vide (prêt pour chunking futur)
 
 **Résultats attendus** :
@@ -1417,7 +1421,7 @@ WITH (
 
 - **`m = 16`** : Chaque nœud est connecté à 16 autres nœuds
   - Plus élevé = meilleure précision, mais index plus gros
-  - 16 = bon équilibre pour 930k docs
+  - 16 = bon équilibre pour 312k docs
   
 - **`ef_construction = 64`** : Taille de la file lors de la construction
   - Plus élevé = meilleure qualité d'index, mais construction plus lente
@@ -1432,7 +1436,7 @@ WITH (
 | **Comparaisons** | 930,000 | ~150 | **6,200x** |
 | **Temps recherche** | 30s+ (timeout) | <1s | **100x-1000x** |
 | **Complexité algo** | O(n) linéaire | O(log n) logarithmique | **Exponentiel** |
-| **Coverage** | 21% (200k docs) | 100% (930k docs) | **479%** |
+| **Coverage** | 21% (67k docs) | 100% (312k docs) | **465%** |
 | **Utilisabilité** | ❌ Timeout | ✅ Production | **Opérationnel** |
 
 ### ⏳ Construction de l'Index (13 oct 2025)
@@ -1458,7 +1462,7 @@ Phase 3: Finalisation (optimisation)         [████████░░] 80
 Phase 4: Validation (activation index)       [██████████] 100%
 ```
 
-**Durée par phase (930k docs × 768 dims)** :
+**Durée par phase (312k docs × 768 dims)** :
 - Phase 1 : ~3-5 minutes (scan séquentiel)
 - Phase 2 : ~5-10 minutes (construction graphe HNSW) ← **EN COURS**
 - Phase 3 : ~2-3 minutes (optimisation connexions)
@@ -1483,7 +1487,7 @@ WHERE i.relname = 'idx_documents_embedding_hnsw';
 **QUAND `is_valid = true` ET `is_ready = true` :**
 - ✅ Index ACTIF et utilisable
 - ✅ PostgreSQL l'utilisera automatiquement
-- ✅ Recherche <1s sur 930k docs
+- ✅ Recherche <1s sur 312k docs (index HNSW 383MB)
 
 ### 🔧 Pourquoi l'Index N'est Pas Encore Utilisé ?
 

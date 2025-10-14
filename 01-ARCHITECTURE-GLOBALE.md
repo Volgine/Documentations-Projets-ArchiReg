@@ -26,6 +26,7 @@ graph TB
     subgraph "EDGE FUNCTIONS - Supabase"
         EF_ADMIN[admin-stats<br/>Métriques dashboard]
         EF_CRON[cron-manager<br/>Gestion cron jobs]
+        EF_TESTS[system-tests<br/>27 tests système]
     end
     
     subgraph "BACKEND - Render"
@@ -65,9 +66,15 @@ graph TB
     F_MAP --> B_PROJ
     F_PROJ --> B_PROJ
     
+    %% Frontend → Edge Functions
+    F_ADMIN --> EF_ADMIN
+    F_ADMIN --> EF_CRON
+    F_ADMIN --> EF_TESTS
+    
     %% Edge Functions → Database
     EF_ADMIN --> DB
     EF_CRON --> PGCRON
+    EF_TESTS --> DB
     
     %% Backend → Database
     B_CHAT --> DB
@@ -96,6 +103,7 @@ graph TB
     
     style EF_ADMIN fill:#4ade80
     style EF_CRON fill:#4ade80
+    style EF_TESTS fill:#4ade80
     style B_CHAT fill:#60a5fa
     style MS fill:#f59e0b
     style W1 fill:#a78bfa
@@ -170,8 +178,8 @@ sequenceDiagram
     F->>EF: GET /functions/v1/admin-stats?action=get
     Note over EF: Auth 100ms (même datacenter)
     EF->>DB: SELECT * FROM admin_metrics_view
-    Note over DB: CPU 15%, 1 seule requête !
-    DB-->>EF: Données (vue matérialisée)
+    Note over DB: Optimisé : work_mem 8MB, index partiels
+    DB-->>EF: Données (vue matérialisée, refresh 15min auto)
     EF-->>F: Métriques (latence: 1-2s)
     F-->>A: Affiche dashboard instantanément
     
@@ -179,7 +187,7 @@ sequenceDiagram
     A->>F: Click Actualiser
     F->>EF: GET /functions/v1/admin-stats?action=refresh
     EF->>DB: REFRESH MATERIALIZED VIEW
-    Note over DB: Recalcul complet (500ms)
+    Note over DB: Optimisé 9.6s → 3-4s (index partiels)
     DB-->>EF: Vue refreshée
     EF->>DB: SELECT * FROM admin_metrics_view
     DB-->>EF: Nouvelles données
@@ -203,17 +211,21 @@ sequenceDiagram
     API-->>MS: JSON documents
     MS->>BKT: Upload legifrance/*.json
     
-    Note over W: Batch processing continu
-    W->>BKT: Liste fichiers non traités
-    BKT-->>W: Liste JSON
+    Note over MS: Auto-sync files_queue au démarrage
+    MS->>BKT: Vérifie cohérence Storage ↔ files_queue
+    MS->>PG: INSERT INTO files_queue (si manquants)
+    
+    Note over W: Batch processing continu (files_queue)
+    W->>PG: SELECT FROM files_queue WHERE status='pending'
+    PG-->>W: Liste 100 fichiers
     W->>BKT: Télécharge JSON
     BKT-->>W: Contenu fichier
-    W->>GGUF: Génère embedding (Solon 768d)
+    W->>GGUF: Génère embedding (Solon 768d, n_ctx=512)
     GGUF-->>W: Vector embedding
-    W->>PG: INSERT INTO documents + chunks
-    PG-->>W: Confirmation
+    W->>PG: INSERT INTO documents
+    W->>PG: UPDATE files_queue SET status='completed'
     
-    Note over W,PG: 930k fichiers traités → 930k documents
+    Note over W,PG: 312k fichiers traités → 312k documents + embeddings
 ```
 
 ### 5. Flux Pipeline Chunking Granulaire ✅ **NOUVEAU**
@@ -226,24 +238,27 @@ sequenceDiagram
     participant GGUF as llama.cpp GGUF
     participant CHK as pgvector (document_chunks)
     
-    Note over WC: Batch processing continu (100 fichiers)
-    WC->>BKT: Liste fichiers non traités
-    BKT-->>WC: Liste JSON (même source que WorkerLocal)
+    participant FQ as files_queue
+    
+    Note over WC: Batch processing continu (files_queue)
+    WC->>FQ: SELECT FROM files_queue WHERE status='pending'
+    FQ-->>WC: Liste 100 fichiers
     WC->>BKT: Télécharge JSON
     BKT-->>WC: Contenu fichier
     WC->>WC: Parse JSON + Extract texte
     WC->>DOC: Lookup document_id via file_path
-    DOC-->>WC: document_id parent (ou NULL)
-    WC->>WC: Découpe texte en chunks (articles/sections)
+    DOC-->>WC: document_id parent (ou NULL si pas trouvé)
+    WC->>WC: Découpe texte en chunks (4 stratégies)
     
     loop Pour chaque chunk
         WC->>GGUF: Génère embedding (Solon 768d, n_ctx=512)
         GGUF-->>WC: Vector embedding
         WC->>CHK: INSERT chunk + embedding + document_id
-        CHK-->>WC: Confirmation
     end
     
-    Note over WC,CHK: 612k fichiers → ~6M chunks (14-16h avec 3 workers)
+    WC->>FQ: UPDATE files_queue SET status='completed'
+    
+    Note over WC,CHK: 1.47M fichiers → ~6-9M chunks (14-16h avec 3 workers)
 ```
 
 **Différence clé** :

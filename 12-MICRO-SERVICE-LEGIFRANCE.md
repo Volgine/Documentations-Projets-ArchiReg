@@ -117,35 +117,60 @@ self.supabase_client.table('files_queue').insert({
 
 ```mermaid
 graph TB
-    subgraph "1️⃣ COLLECTE (Micro-service)"
+    subgraph "1️⃣ COLLECTE (Micro-service v2.5)"
         A[API PISTE Légifrance]
         B[OAuth2 + Rate Limiting]
-        C[Collecte JSON]
+        C[Collecte JSON<br/>~200-300 docs/min]
+        SYNC[Auto-Sync Intelligent<br/>Vérifie cohérence au démarrage]
     end
     
     subgraph "2️⃣ STOCKAGE (Supabase)"
-        D[Bucket agentbasic-legifrance-raw]
-        E[Table files_queue]
+        D[Bucket agentbasic-legifrance-raw<br/>1.45M fichiers JSON]
+        E[files_queue<br/>1.47M fichiers]
     end
     
-    subgraph "3️⃣ TRAITEMENT (Workers)"
-        F[WorkerLocal x3]
-        G[Parse + Embeddings]
-        H[Table documents]
+    subgraph "3️⃣ TRAITEMENT (Workers PC Windows)"
+        F1[WorkerLocal 1<br/>✅ Terminé]
+        F2[WorkerLocal 2<br/>✅ Terminé]
+        F3[WorkerLocal 3<br/>✅ Terminé]
+        G[Parse + Embeddings GGUF<br/>llama-cpp FROM SOURCE]
+        H[documents<br/>312k docs + HNSW 383MB]
+        
+        WC1[WorkerLocal Chunk 1<br/>⏸️ Prêt]
+        WC2[WorkerLocal Chunk 2<br/>⏸️ Prêt]
+        WC3[WorkerLocal Chunk 3<br/>⏸️ Prêt]
+        CHK[document_chunks<br/>0 rows → 6M chunks]
     end
     
     A --> B
     B --> C
     C -->|Upload Direct| D
-    C -->|Insert| E
-    E -->|Récupère pending| F
-    D -->|Télécharge JSON| F
-    F --> G
+    C -->|INSERT auto| E
+    SYNC -->|Vérifie| D
+    SYNC -->|Sync si besoin| E
+    E -->|SELECT pending| F1
+    E -->|SELECT pending| F2
+    E -->|SELECT pending| F3
+    D -->|Download JSON| F1
+    F1 --> G
     G --> H
     
+    E -.->|SELECT pending| WC1
+    E -.->|SELECT pending| WC2
+    E -.->|SELECT pending| WC3
+    D -.->|Download JSON| WC1
+    WC1 -.-> CHK
+    
     style C fill:#4ecdc4
+    style SYNC fill:#4ade80
     style D fill:#ffd93d
-    style F fill:#a78bfa
+    style F1 fill:#a78bfa
+    style F2 fill:#a78bfa
+    style F3 fill:#a78bfa
+    style WC1 fill:#f472b6,stroke-dasharray: 5 5
+    style WC2 fill:#f472b6,stroke-dasharray: 5 5
+    style WC3 fill:#f472b6,stroke-dasharray: 5 5
+    style CHK stroke-dasharray: 5 5
 ```
 
 ---
