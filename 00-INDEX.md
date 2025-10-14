@@ -128,32 +128,53 @@ Ce dossier contient la **documentation complète et finale** de l'architecture A
 - Workflow complet (Microservice → Queue → Workers → Documents → RAG)
 - Commandes SQL utiles pour surveillance
 
-### **1️⃣5️⃣ Capacité Client & Scaling** 📈 ⭐ **NOUVEAU**
+### **1️⃣5️⃣ Capacité Client & Scaling** 📈 ⭐ **MIS À JOUR**
 **[15-CAPACITE-SCALING.md](./15-CAPACITE-SCALING.md)**
-- Analyse infrastructure actuelle (65 EUR/mois)
-- Goulots d'étranglement identifiés (Backend 1 CPU, Supabase 8 GB dépassé)
-- 3 scénarios usage : léger (1,500 clients/jour), moyen (300 clients/jour), intensif (150 clients/jour)
-- **PROBLÈME CRITIQUE** : Database 9.5 GB > 8 GB limite Supabase Pro
-- Plan de scaling 3 étapes : 70 EUR → 95 EUR → 200 EUR/mois
-- Projections revenue : 6k-90k EUR/an selon scénario
-- ROI calculé : 15x à 1,385x l'investissement infra
-- Recommandations pricing : 2-20 EUR/client/mois selon segment
-- Actions immédiates : Upgrade Supabase Team (urgent)
+- ⚠️ **OBSOLÈTE (doc historique)** : Database 9.5 GB > 8 GB (avant nettoyage)
+- ✅ **ACTUEL (14 oct 2025)** : Database 6.7 GB / 100 GB (7% usage) après optimisations
+- Infrastructure optimisée : 25 EUR/mois stable (Pro Plan)
+- Capacité actuelle : 50-100 users simultanés, 10-20 requêtes/sec
+- Marge restante : Croissance 10-15x sans surcoût
+- Auto-scaling activé : Disk 202 GB provisionné (facturé sur usage réel)
 
-### **1️⃣7️⃣ Synchronisation Automatique files_queue** ⚡ **NOUVEAU**
+### **1️⃣6️⃣ Fix Embeddings Incompatibles** 🔧 ⭐ **CRITIQUE**
+**[16-FIX-EMBEDDINGS-INCOMPATIBLES.md](./16-FIX-EMBEDDINGS-INCOMPATIBLES.md)**
+- Problème : Embeddings incompatibles Windows (AVX2) vs Linux (SSE4)
+- Solution : Forcer compilation llama-cpp-python FROM SOURCE (--no-binary)
+- Validation : Recherche RAG fonctionnelle (distance min 0.66, 1611 résultats)
+- Database nettoyée : 11 GB libérés (documents, index HNSW, parsed_files)
+- WorkerLocal + WorkerLocal Chunk alignés avec Backend
+
+### **1️⃣7️⃣ Synchronisation Automatique files_queue** ⚡ **AUTO-SYNC**
 **[17-FILES-QUEUE-SYNC.md](./17-FILES-QUEUE-SYNC.md)**
-- Maintien automatique par micro-service Légifrance (~200-300 docs/min)
-- INSERT automatique dans files_queue pour chaque nouveau document
-- Synchronisation manuelle après TRUNCATE (scripts SQL batch)
-- Monitoring de cohérence Storage ↔ files_queue
-- Alertes et diagnostics de désynchronisation
+- Auto-sync intelligent au démarrage micro-service (vérification cohérence)
+- Auto-sync < 100k fichiers manquants (arrière-plan automatique)
+- Alert admin si > 100k manquants (sync SQL manuelle)
+- Maintien continu : ~200-300 docs/min en mode MASSIVE
+- Scripts SQL batch 50k pour cas extrêmes
 
-### **1️⃣8️⃣ Connexion psql Directe Supabase** 🔗 **NOUVEAU**
+### **1️⃣8️⃣ Connexion psql Directe Supabase** 🔗 ⭐ **MAINTENANCE**
 **[18-CONNEXION-PSQL-DIRECTE.md](./18-CONNEXION-PSQL-DIRECTE.md)**
-- Format connexion directe (sans pooler) pour SET + CREATE INDEX
-- Résolution problèmes authentication (user simple vs complet)
+- Format connexion directe port 5432 (user postgres, sans pooler)
+- Paramètres optimisés CREATE INDEX HNSW (maintenance_work_mem 128MB)
+- Résolution erreurs : authentication, timeout, shared memory
 - Cas d'usage : maintenance lourde vs applications
-- Commandes SQL avec paramètres optimisés
+
+### **1️⃣9️⃣ Audit Sécurité & Performance Supabase** 🔍 ⭐ **NOUVEAU (14 oct 2025)**
+**[19-AUDIT-SECURITE-PERFORMANCE-SUPABASE.md](./19-AUDIT-SECURITE-PERFORMANCE-SUPABASE.md)**
+- Audit complet : RLS, index, requêtes, connexions, extensions
+- Problèmes critiques identifiés : refresh 9.6s, 47 index inutiles, work_mem faible
+- Optimisations appliquées : Cron 15min, tables supprimées, index partiels, work_mem 8MB
+- Gain total : +50-60% performance admin metrics
+- Infrastructure Pro Plan : 6.7 GB / 100 GB (7% usage), marge 10-15x
+
+### **2️⃣0️⃣ Tables Explicatives** 📊 ⭐ **NOUVEAU (14 oct 2025)**
+**[20-TABLES-EXPLICATIVES.md](./20-TABLES-EXPLICATIVES.md)**
+- Guide complet des 28 tables : rôle, liens, catégories
+- 7 catégories : Légifrance RAG, Chat, Auth, Monitoring, Archivage, Futures, Debug
+- Diagramme Mermaid des liens entre tables
+- Tables actives vs futures vs legacy
+- Avertissements : tables à ne jamais supprimer
 
 ---
 
@@ -213,18 +234,18 @@ Ce dossier contient la **documentation complète et finale** de l'architecture A
 
 ---
 
-## 📊 État Actuel du Système (11 octobre 2025)
+## 📊 État Actuel du Système (14 octobre 2025)
 
 ### **Frontend Dashboard**
 
 | Section | Status | Dernière validation |
 |---------|--------|---------------------|
-| **Vue d'ensemble** | ✅ Validé | 11 oct 2025 |
-| **Workers** | ✅ Validé | 11 oct 2025 |
-| **Cron Jobs** | 🔒 Lecture seule | 11 oct 2025 |
-| **Timeline 24h** | ✅ Validé | 11 oct 2025 |
-| **Qualité & Erreurs** | ✅ Validé | 11 oct 2025 |
-| **Système > Actions** | ✅ 27 tests disponibles | 11 oct 2025 ⭐ |
+| **Vue d'ensemble** | ✅ Validé | 14 oct 2025 |
+| **Workers** | ✅ Validé | 14 oct 2025 |
+| **Cron Jobs** | ✅ Optimisé (15min) | 14 oct 2025 ⭐ |
+| **Timeline 24h** | ✅ Optimisé (refresh 15min) | 14 oct 2025 ⭐ |
+| **Qualité & Erreurs** | ✅ Validé | 14 oct 2025 |
+| **Système > Actions** | ✅ 27 tests disponibles | 14 oct 2025 |
 
 **Améliorations récentes** :
 - ✅ Messages d'erreur clairs (❌ Échec traitement, ⏱️ Timeout, etc.)
