@@ -2,70 +2,125 @@
 
 ## 🎯 À PROPOS
 
-Cette documentation explique **l'architecture complète** du projet ArchiReg après la **migration vers Edge Functions Supabase** (octobre 2025).
+Cette documentation explique **l'architecture complète** du projet ArchiReg après les **optimisations Supabase** (octobre 2025).
 
-**Version** : 5.3.0 FIX RAG VERSION LLAMA-CPP + THRESHOLD 0.70  
+**Version** : 5.8.0 OPTIMISATIONS SUPABASE APPLIQUÉES  
 **Status** : ✅ EN PRODUCTION  
-**Dernière mise à jour** : 13 octobre 2025 08:30 UTC  
-**CPU Supabase** : 12-15% (optimal)  
-**Dashboard LégiFrance** : ✅ 100% validé (11 oct 2025)  
-**Tests Système** : ✅ 27 tests (9 Backend + 18 Edge Function) - RAG: 3 docs trouvés ⭐  
-**RAG & Embeddings** : ✅ **FONCTIONNEL** - llama-cpp==0.3.16 - threshold 0.70 - 930k docs indexés 🧠  
-**Groq LLM** : ✅ Test API + gpt-oss-120b + latence/tokens 🚀  
-**Chunking Granulaire** : ✅ WorkerLocal Chunk 100% opérationnel (14-16h pour 6M chunks) 🔬  
-**Micro-service Légifrance** : ✅ v2.5 Upload direct Supabase + Contrôle frontend total 🎯
+**Dernière mise à jour** : 14 octobre 2025 23:00 UTC  
 
 ---
 
-## 📖 FICHIERS PRINCIPAUX (LIRE DANS CET ORDRE)
+## 🚀 INFRASTRUCTURE (14 oct 2025)
 
-| # | Fichier | Description | Priorité |
-|---|---------|-------------|----------|
-| **📌** | [RESUME-ARCHITECTURE-V4.7.md](./RESUME-ARCHITECTURE-V4.7.md) | ⭐ Résumé ultra-simple (COMMENCER ICI) | ⭐⭐⭐ |
-| **0** | [00-INDEX.md](./00-INDEX.md) | Index général, état système | ⭐⭐⭐ |
-| **1** | [01-ARCHITECTURE-GLOBALE.md](./01-ARCHITECTURE-GLOBALE.md) | Schémas Mermaid, flux de données | ⭐⭐⭐ |
-| **2** | [02-WEBSOCKETS-VS-REALTIME.md](./02-WEBSOCKETS-VS-REALTIME.md) | WebSockets backend vs Supabase Realtime | ⭐⭐⭐ |
-| **3** | [03-INFRASTRUCTURE.md](./03-INFRASTRUCTURE.md) | Tous les services, URLs, configs | ⭐⭐ |
-| **4** | [04-HISTORIQUE-TABLES.md](./04-HISTORIQUE-TABLES.md) | Stats tables, évolution données | ⭐ |
-| **8** | [08-TESTS-SYSTEME.md](./08-TESTS-SYSTEME.md) | Architecture hybride tests (27 tests) | ⭐⭐ |
-| **9** | [09-RAG-EMBEDDINGS.md](./09-RAG-EMBEDDINGS.md) | RAG complet, Workers, Backend, n_ctx=512 | ⭐⭐⭐ |
-| **10** | [10-CHUNKING-GRANULAIRE.md](./10-CHUNKING-GRANULAIRE.md) | Architecture hybride v2.0 (IMPLÉMENTÉ) | ⭐⭐⭐ |
-| **11** | [11-BONNES-PRATIQUES.md](./11-BONNES-PRATIQUES.md) | Guide bonnes pratiques + pièges à éviter | ⭐⭐⭐ |
-| **12** | [12-MICRO-SERVICE-LEGIFRANCE.md](./12-MICRO-SERVICE-LEGIFRANCE.md) | Upload direct + Architecture unifiée (v2.3) | ⭐⭐⭐ |
-| **13** | [13-POURQUOI-RAG-EMBEDDINGS.md](./13-POURQUOI-RAG-EMBEDDINGS.md) | ⭐ Pourquoi embeddings ? Flux RAG complet | ⭐⭐⭐ |
+### **💾 Database Supabase Pro (25€/mois)**
+- **PostgreSQL** : 17.6 (patches sécurité ✅)
+- **Timezone** : Europe/Paris 🇫🇷
+- **Database** : 6.7 GB / 100 GB (7% usage)
+- **Storage** : 5 GB / 100 GB (5% usage)
+- **Compute** : Micro 1GB 2-core ARM (suffisant)
+- **Connexions** : 25/60 (42% usage)
+- **Marge** : Capacité 10-15x sans surcoût
 
----
+### **⚡ Optimisations Appliquées**
+1. ✅ Cron refresh : 5 min → 15 min (-66% appels)
+2. ✅ work_mem : 3.5 MB → 8 MB (+134% RAM)
+3. ✅ Index partiels : files_queue optimisé
+4. ✅ Tables supprimées : plu_documents, public.messages (24 index)
+5. ✅ admin_metrics_view : Sécurisée (service_role only)
 
-## 📁 DOSSIERS
-
-### **05-EDGE-FUNCTIONS/** 🌐
-Documentation des Edge Functions Supabase (Deno/TypeScript)
-
-**Contenu** :
-- `admin-stats/index.ts` : Métriques dashboard
-- `cron-manager/index.ts` : Gestion pg_cron (READ-ONLY)
-- `system-tests/index.ts` : 15 tests système ⭐ **NOUVEAU**
-- `README.md` : Doc complète avec code et déploiement
-
-**À lire si** : Tu veux comprendre comment fonctionnent les Edge Functions
+**Gain total** : **+50-60% performance globale** 🎉
 
 ---
 
-### **06-MIGRATIONS/SQL/** 🗄️
-Scripts SQL de production
+## 🧠 RAG & EMBEDDINGS
 
-**Contenu** :
-- `final_complete_view.sql` : Vue matérialisée optimisée (5.9s refresh)
-- `create_cron_helpers.sql` : Fonctions helpers pg_cron
-- `create_indexes.sql` : Index stratégiques
-- `drop_unused_indexes.sql` : Nettoyage 37 index
-- `README.md` : Doc migrations complète
+### **📦 WorkerLocal (Documents Globaux)**
+- **Rôle** : Parse documents → embeddings contexte global
+- **Table cible** : `documents` (312,205 docs, 3 GB)
+- **Index HNSW** : 383 MB (recherche vectorielle rapide)
+- **Status** : ✅ Terminé (312k docs générés)
+- **Config** : llama-cpp-python FROM SOURCE (--no-binary)
+- **Compatibilité** : ✅ Aligné avec Backend (fix 13 oct 2025)
 
-**À lire si** : Tu veux comprendre la base de données et les optimisations SQL
+### **🔬 WorkerLocal Chunk (Chunks Granulaires)**
+- **Rôle** : Parse + découpage articles/sections → embeddings granulaires
+- **Table cible** : `document_chunks` (0 rows, prêt pour 6M chunks)
+- **Découpage** : 4 stratégies intelligentes (articles/sections/paragraphes/fallback)
+- **Status** : ✅ Prêt à lancer (14-16h pour 6M chunks avec 3 workers)
+- **Config** : llama-cpp-python FROM SOURCE (--no-binary)
+- **Compatibilité** : ✅ Aligné avec Backend
+
+### **🔍 Recherche RAG**
+- **Modèle** : GGUF Solon-embeddings-base (768 dims, n_ctx=512)
+- **Performance** : Distance min 0.66, threshold 0.70, 1611 résultats pertinents
+- **Latence** : <500ms (recherche dans 312k docs)
+- **Architecture** : pgvector + HNSW (6,200x moins de calculs)
+
+---
+
+## 🏛️ MICRO-SERVICE LÉGIFRANCE
+
+### **Version 2.5 - Auto-Sync Intelligent**
+- **Collection** : ~200-300 docs/min (mode MASSIVE)
+- **files_queue** : 1.47M fichiers (sync automatique)
+- **Auto-sync** : Vérifie cohérence Storage ↔ files_queue au démarrage
+- **Intelligent** : < 100k manquants → sync auto, > 100k → alert admin
+- **Persistance** : État scheduler sauvegardé (résilience crash)
+
+---
+
+## 📖 DOCUMENTATION (20 FICHIERS)
+
+### **🎯 ESSENTIELS (À LIRE EN PRIORITÉ)**
+
+| # | Fichier | Description |
+|---|---------|-------------|
+| ⭐ | [RESUME-ARCHITECTURE-V4.7.md](./RESUME-ARCHITECTURE-V4.7.md) | Résumé ultra-simple (COMMENCER ICI) |
+| **0** | [00-INDEX.md](./00-INDEX.md) | Index général, guide de lecture |
+| **1** | [01-ARCHITECTURE-GLOBALE.md](./01-ARCHITECTURE-GLOBALE.md) | Schémas Mermaid, 4 services |
+| **9** | [09-RAG-EMBEDDINGS.md](./09-RAG-EMBEDDINGS.md) | RAG complet, Workers, Backend |
+| **16** | [16-FIX-EMBEDDINGS-INCOMPATIBLES.md](./16-FIX-EMBEDDINGS-INCOMPATIBLES.md) | Fix critique AVX2 vs SSE4 |
+| **19** | [19-AUDIT-SECURITE-PERFORMANCE-SUPABASE.md](./19-AUDIT-SECURITE-PERFORMANCE-SUPABASE.md) | Audit + optimisations |
+| **20** | [20-TABLES-EXPLICATIVES.md](./20-TABLES-EXPLICATIVES.md) | Guide des 28 tables |
+
+### **🔧 TECHNIQUE**
+
+| # | Fichier | Description |
+|---|---------|-------------|
+| **2** | [02-WEBSOCKETS-VS-REALTIME.md](./02-WEBSOCKETS-VS-REALTIME.md) | Migration WebSockets → Realtime |
+| **3** | [03-INFRASTRUCTURE.md](./03-INFRASTRUCTURE.md) | Services, URLs, configs |
+| **10** | [10-CHUNKING-GRANULAIRE.md](./10-CHUNKING-GRANULAIRE.md) | Architecture hybride 2 niveaux |
+| **12** | [12-MICRO-SERVICE-LEGIFRANCE.md](./12-MICRO-SERVICE-LEGIFRANCE.md) | Upload direct + Auto-sync |
+| **17** | [17-FILES-QUEUE-SYNC.md](./17-FILES-QUEUE-SYNC.md) | Sync automatique files_queue |
+| **18** | [18-CONNEXION-PSQL-DIRECTE.md](./18-CONNEXION-PSQL-DIRECTE.md) | psql direct, CREATE INDEX |
+
+### **📚 RÉFÉRENCE**
+
+| # | Fichier | Description |
+|---|---------|-------------|
+| **4** | [04-HISTORIQUE-TABLES.md](./04-HISTORIQUE-TABLES.md) | Stats tables, évolution |
+| **7** | [07-SECURITE-CRON-JOBS.md](./07-SECURITE-CRON-JOBS.md) | Sécurité pg_cron |
+| **8** | [08-TESTS-SYSTEME.md](./08-TESTS-SYSTEME.md) | 27 tests système |
+| **11** | [11-BONNES-PRATIQUES.md](./11-BONNES-PRATIQUES.md) | Guide bonnes pratiques |
+| **13** | [13-POURQUOI-RAG-EMBEDDINGS.md](./13-POURQUOI-RAG-EMBEDDINGS.md) | Pourquoi RAG ? Flux complet |
+| **14** | [14-STRUCTURE-TABLES.md](./14-STRUCTURE-TABLES.md) | Structure 17 tables |
+| **15** | [15-CAPACITE-SCALING.md](./15-CAPACITE-SCALING.md) | Capacité & scaling (obsolète) |
+
+### **📁 DOSSIERS**
+
+- **05-EDGE-FUNCTIONS/** : 3 Edge Functions (admin-stats, cron-manager, system-tests)
+- **06-MIGRATIONS/SQL/** : 6 scripts SQL production
 
 ---
 
 ## 🎯 QUESTIONS FRÉQUENTES
+
+### **Q : Différence entre WorkerLocal et WorkerLocal Chunk ?**
+**R** :
+- **WorkerLocal** : 1 document = 1 embedding (contexte global) → Table `documents`
+- **WorkerLocal Chunk** : 1 document = N embeddings (chunks granulaires) → Table `document_chunks`
+- Les deux utilisent le même modèle GGUF (768 dims, n_ctx=512)
+- Les deux sont alignés avec le Backend (llama-cpp-python FROM SOURCE)
 
 ### **Q : On utilise encore des WebSockets ?**
 **R** : Oui, mais **gérés par Supabase automatiquement** ! Plus de code WebSocket manuel.  
@@ -86,7 +141,7 @@ npx vercel --prod --yes
 
 ### **Q : Comment refresh les métriques admin ?**
 **R** : 
-- **Auto** : pg_cron toutes les 10 minutes
+- **Auto** : pg_cron toutes les 15 minutes (optimisé)
 - **Manuel** : Cliquer "Actualiser" dans le frontend
 - **SQL** : `SELECT refresh_admin_metrics_view();`
 
@@ -95,35 +150,73 @@ npx vercel --prod --yes
 1. Suppression cache warmer backend (12 queries SQL/4min)
 2. Migration vers Edge Functions (0ms latence)
 3. Vue matérialisée optimisée (reltuples, index, HAVING)
-4. Refresh moins fréquent (10min au lieu de 2min)
+4. Refresh moins fréquent (15min au lieu de 5min)
+5. work_mem augmenté (8 MB), index partiels créés
 
-### **Q : Quelles métriques sont désactivées ?**
-**R** : 
-- `historique_30j` (trop lourd, ~180ms)
-- `recent_batches` (redondant)
-- `size_distribution` (redondant)
-- `top_heavy_files` (non critique)
-
-**Gain** : ~373ms par refresh
+### **Q : Les embeddings sont-ils compatibles entre Workers et Backend ?**
+**R** : ✅ **OUI** (depuis le 13 oct 2025) !
+- Fix appliqué : `--no-binary=llama-cpp-python` dans requirements.txt
+- Force compilation FROM SOURCE (même flags pour Windows et Linux)
+- Validation : distance min 0.66, 1611 résultats trouvés
+- Documentation : [16-FIX-EMBEDDINGS-INCOMPATIBLES.md](./16-FIX-EMBEDDINGS-INCOMPATIBLES.md)
 
 ---
 
 ## 🚀 DÉMARRAGE RAPIDE
 
 ### **1. Lire la doc dans l'ordre** 📖
-1. [00-INDEX.md](./00-INDEX.md) - Commencer ici
-2. [01-ARCHITECTURE-GLOBALE.md](./01-ARCHITECTURE-GLOBALE.md) - Comprendre l'archi
-3. [02-WEBSOCKETS-VS-REALTIME.md](./02-WEBSOCKETS-VS-REALTIME.md) - WebSockets expliqués
+1. **RESUME-ARCHITECTURE-V4.7.md** - Vue d'ensemble ultra-simple
+2. **00-INDEX.md** - Carte complète des 20 documents
+3. **01-ARCHITECTURE-GLOBALE.md** - Comprendre les 4 services
+4. **09-RAG-EMBEDDINGS.md** - Comprendre le RAG
+5. **16-FIX-EMBEDDINGS-INCOMPATIBLES.md** - Fix critique
+6. **19-AUDIT-SECURITE-PERFORMANCE-SUPABASE.md** - Optimisations
+7. **20-TABLES-EXPLICATIVES.md** - Référence des 28 tables
 
 ### **2. Vérifier le système** 🔍
 - Frontend : https://archireg-front.vercel.app/admin
 - Backend : https://agent-orchestrateur-backend.onrender.com/health
-- Supabase : https://supabase.com/dashboard/project/joozqsjbcwrqyeqepnev
+- Supabase : Dashboard Pro (6.7 GB / 100 GB)
 
 ### **3. Monitoring** 📊
-- **CPU Supabase** : Doit être ~12-15%
-- **Refresh view** : Toutes les 10 min
-- **Workers actifs** : 3 (si lancés)
+- **Database** : 6.7 GB / 100 GB (7% usage)
+- **Connexions** : 25/60 (42% usage)
+- **Refresh admin** : Toutes les 15 min (optimisé)
+- **Workers** : 3 actifs (si lancés)
+
+---
+
+## 🎉 RÉSUMÉ
+
+### **✅ INFRASTRUCTURE**
+- Supabase Pro Plan : 25€/mois stable
+- Database 6.7 GB / 100 GB (7% usage)
+- PostgreSQL 17.6 + timezone Europe/Paris
+- Optimisations : +50-60% performance
+
+### **✅ RAG & WORKERS**
+- WorkerLocal : 312k documents (embeddings globaux) ✅ Terminé
+- WorkerLocal Chunk : Prêt pour 6M chunks (granulaires) ⏸️
+- Embeddings compatibles : Windows ↔ Linux ✅
+- Recherche RAG fonctionnelle : 1611 résultats ✅
+
+### **✅ SERVICES**
+- Frontend : Vercel (Next.js)
+- Backend : Render (FastAPI, RAG)
+- Micro-service : Render (Légifrance, auto-sync)
+- Edge Functions : 3 fonctions (admin-stats, cron-manager, system-tests)
+
+### **✅ SÉCURITÉ**
+- RLS activé sur toutes les tables
+- admin_metrics_view : service_role only
+- Postgres patches appliqués
+- Timezone France configurée
+
+### **✅ DOCUMENTATION**
+- 20 documents markdown (13,278+ lignes)
+- 7 catégories de tables expliquées
+- 3 repos GitHub publiés
+- Guide complet et à jour
 
 ---
 
@@ -132,52 +225,72 @@ npx vercel --prod --yes
 ```
 DOCS-ARCHITECTURE/
 │
-├── 00-INDEX.md                    ⭐ Index général
-├── 01-ARCHITECTURE-GLOBALE.md     ⭐ Schémas Mermaid
-├── 02-WEBSOCKETS-VS-REALTIME.md   ⭐ WebSockets expliqués
-├── 03-INFRASTRUCTURE.md           📋 Tous les services
-├── 04-HISTORIQUE-TABLES.md        📊 Stats tables
+├── 🎯 ESSENTIELS
+│   ├── RESUME-ARCHITECTURE-V4.7.md        ⭐ Commencer ici
+│   ├── 00-INDEX.md                        📋 Index général
+│   ├── 01-ARCHITECTURE-GLOBALE.md         🏗️ Schémas Mermaid
+│   ├── 09-RAG-EMBEDDINGS.md               🧠 RAG complet
+│   ├── 16-FIX-EMBEDDINGS-INCOMPATIBLES.md 🔧 Fix critique
+│   ├── 19-AUDIT-SECURITE-PERFORMANCE.md   🔍 Optimisations
+│   └── 20-TABLES-EXPLICATIVES.md          📊 Guide tables
 │
-├── 05-EDGE-FUNCTIONS/             🌐 Edge Functions
-│   ├── README.md
-│   ├── admin-stats/
-│   │   └── index.ts
-│   ├── cron-manager/
-│   │   └── index.ts
-│   └── system-tests/              ⭐ NOUVEAU
-│       ├── index.ts
-│       └── README.md
+├── 🔧 TECHNIQUE
+│   ├── 02-WEBSOCKETS-VS-REALTIME.md       🔌 WebSockets
+│   ├── 03-INFRASTRUCTURE.md               💻 Services
+│   ├── 10-CHUNKING-GRANULAIRE.md          🔬 Architecture hybride
+│   ├── 12-MICRO-SERVICE-LEGIFRANCE.md     🏛️ Micro-service
+│   ├── 17-FILES-QUEUE-SYNC.md             ⚡ Auto-sync
+│   └── 18-CONNEXION-PSQL-DIRECTE.md       🔗 Maintenance
 │
-└── 06-MIGRATIONS/                 🗄️ Migrations SQL
-    └── SQL/
-        ├── README.md
-        ├── final_complete_view.sql
-        ├── create_cron_helpers.sql
-        ├── create_indexes.sql
-        └── drop_unused_indexes.sql
+├── 📚 RÉFÉRENCE
+│   ├── 04-HISTORIQUE-TABLES.md            📊 Stats
+│   ├── 07-SECURITE-CRON-JOBS.md           🔒 Sécurité
+│   ├── 08-TESTS-SYSTEME.md                🧪 27 tests
+│   ├── 11-BONNES-PRATIQUES.md             📖 Best practices
+│   ├── 13-POURQUOI-RAG-EMBEDDINGS.md      💡 Pourquoi RAG
+│   ├── 14-STRUCTURE-TABLES.md             🗄️ Structure tables
+│   └── 15-CAPACITE-SCALING.md             📈 Scaling (obsolète)
+│
+├── 📁 DOSSIERS
+│   ├── 05-EDGE-FUNCTIONS/                 🌐 3 Edge Functions
+│   │   ├── admin-stats/
+│   │   ├── cron-manager/
+│   │   └── system-tests/
+│   └── 06-MIGRATIONS/SQL/                 🗄️ Scripts SQL
+│       ├── final_complete_view.sql
+│       ├── create_cron_helpers.sql
+│       ├── create_indexes.sql
+│       └── drop_unused_indexes.sql
+│
+└── 📋 PLANS & HISTORIQUE
+    ├── CREATE_HNSW_INDEXES.sql
+    ├── PLAN-ARCHITECTURE-RAG-COMPLETE.md
+    ├── PLAN-FIX-GGUF-EMBEDDINGS.md
+    └── DEPLOIEMENT-SYSTEM-TESTS.md
 ```
 
 ---
 
-## 🎉 RÉSUMÉ
+## 🔗 REPOS GITHUB
 
-✅ **Architecture optimisée** : CPU 12-15% (vs 90%)  
-✅ **WebSockets migrés** : Supabase Realtime (0 code manuel)  
-✅ **Edge Functions** : admin-stats + cron-manager (READ-ONLY) + system-tests v3 ⭐  
-✅ **Vue matérialisée** : 5.9s refresh / 10 min  
-✅ **Documentation complète** : 14 fichiers (Résumé + Bonnes pratiques + RAG + Chunking + Micro-service)  
-✅ **Code 100% clean** : Aucun code mort  
-✅ **Dashboard LégiFrance** : 100% validé (Vue d'ensemble, Workers, Cron Jobs, Timeline, Qualité & Erreurs)  
-🔒 **Sécurité renforcée** : Cron Jobs READ-ONLY (0 risque SQL injection)  
-🧪 **Tests Système** : **27 tests** (9 Backend + 18 Edge Function) - Architecture hybride optimale  
-🎨 **Modales enrichies** : 18 tests avec descriptions détaillées, répercussions, badges colorés  
-🧠 **RAG & Embeddings** : 930k documents indexés, GGUF Solon-base (768 dims, n_ctx=512), Workers + Backend pgvector  
-🚀 **Groq LLM** : Test API complet + modèle gpt-oss-120b (120B params) + mesure latence/tokens  
-🔬 **Chunking Granulaire** : ✅ WorkerLocal Chunk 100% opérationnel (4 stratégies, lien parent auto, 14-16h pour 6M chunks)  
-🏛️ **Micro-Service Légifrance** : ✅ v2.4 Persistance état (résilience crash, restauration automatique, contrôle total) 🎯
+### **1. Documentations-Projets-ArchiReg**
+📍 https://github.com/Volgine/Documentations-Projets-ArchiReg.git
+- 36 fichiers, 13,278+ lignes
+- Documentation complète architecture
+
+### **2. WorkerLocal-Legifrance**
+📍 https://github.com/UrbArchi-AI/WorkerLocal-Legifrance.git
+- 38 fichiers, 3,879 lignes
+- Parser documents (embeddings globaux)
+
+### **3. WorkerLocal-ChunkGranulat-Legifrance**
+📍 https://github.com/UrbArchi-AI/WorkerLocal-ChunkGranulat-Legifrance.git
+- 38 fichiers, 3,524 lignes
+- Parser + découpage granulaire
 
 ---
 
-**📅 Date** : 12 octobre 2025 13:00 UTC  
-**👨‍💻 Projet** : ArchiReg v5.1.0 PERSISTANCE ÉTAT
+**📅 Date** : 14 octobre 2025 23:00 UTC  
+**👨‍💻 Projet** : ArchiReg v5.8.0 OPTIMISATIONS SUPABASE  
+**🎯 Status** : ✅ Production, optimisé, documenté
 
