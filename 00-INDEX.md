@@ -5,9 +5,9 @@
 Ce dossier contient la **documentation complète et finale** de l'architecture ArchiReg après la migration vers Edge Functions Supabase.
 
 **Date de création** : 10 octobre 2025  
-**Dernière mise à jour** : 14 octobre 2025 23:00 UTC  
-**Version** : 5.8.0 OPTIMISATIONS SUPABASE APPLIQUÉES  
-**Status** : ✅ **EN PRODUCTION** - RAG actif HNSW optimisé (<1s, 312k docs, 1.4GB) + 17 tables + Optimisations Supabase +30-40% perf ✅
+**Dernière mise à jour** : 15 octobre 2025 10:00 UTC  
+**Version** : 5.9.0 MICRO-SERVICE UNIFIÉ + FIX LEGIARTI + WORKERS ALIGNÉS  
+**Status** : ✅ **EN PRODUCTION** - RAG actif HNSW optimisé + Micro-service v3.0 (qualité 60%) + Workers alignés (fix article wrapper) ✅
 
 🔥 **NOUVEAU** : 
 - [19-AUDIT-SECURITE-PERFORMANCE-SUPABASE.md](./19-AUDIT-SECURITE-PERFORMANCE-SUPABASE.md) - Audit complet + optimisations appliquées

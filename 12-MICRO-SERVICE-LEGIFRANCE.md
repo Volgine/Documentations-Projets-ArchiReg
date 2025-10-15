@@ -1,19 +1,23 @@
-# 🏛️ MICRO-SERVICE LÉGIFRANCE - Upload Direct + Contrôle Frontend
+# 🏛️ MICRO-SERVICE LÉGIFRANCE - Collecte Qualité Unifiée
 
-**Date** : 13 octobre 2025  
-**Version** : 2.6 PERSISTENCE SCHEDULER + UPLOAD DIRECT + CONTRÔLE FRONTEND  
-**Status** : ✅ **PERSISTENCE ÉTAT + REDÉMARRAGE AUTO + CONTRÔLE TOTAL**
+**Date** : 15 octobre 2025  
+**Version** : 3.0 UNIFICATION MAINTENANCE/MASSIVE + FIX LEGIARTI + CLEAN CODE  
+**Status** : ✅ **PRODUCTION - SCHEDULER UNIFIÉ - CODE OPTIMISÉ (-645 LIGNES)**
 
 ---
 
 ## 🎯 Rôle du Micro-Service
 
-**Responsabilité** : **COLLECTEUR UNIQUEMENT**
+**Responsabilité** : **COLLECTEUR DE QUALITÉ UNIQUEMENT**
 
 ```
 Micro-service Légifrance
     ↓
-Collecte JSON depuis API PISTE
+Collecte via /legi/tableMatieres (hiérarchie codes)
+    ↓
+Filtre LEGIARTI (vrais articles SEULEMENT)
+    ↓
+Filtre qualité (texte > 200 chars après nettoyage HTML)
     ↓
 Upload DIRECT vers Bucket Supabase ✅
     ↓
@@ -22,18 +26,89 @@ Workers récupèrent et traitent
 
 **CE QU'IL FAIT** :
 - ✅ Authentification OAuth2 avec API PISTE
-- ✅ Collecte documents juridiques (16 codes)
-- ✅ Upload DIRECT vers bucket Supabase
-- ✅ Gestion rate limiting (60 req/s)
-- ✅ **INSERT AUTOMATIQUE dans `files_queue`** (~200-300 docs/min en MASSIVE) ← **MAINTIEN AUTO !**
-- ✅ **Contrôle START/STOP** : Contrôlable depuis le frontend (via backend proxy)
-- ✅ **Modes MASSIVE/MAINTENANCE** : Changement dynamique via frontend
+- ✅ Collecte **INTELLIGENTE** via `/consult/legi/tableMatieres` + `/consult/getArticle`
+- ✅ **Filtre LEGIARTI** : Ignore sections vides (LEGISCTA) → Garde SEULEMENT vrais articles
+- ✅ **Filtre qualité** : Texte > 200 chars après nettoyage HTML (évite titres vides)
+- ✅ Upload DIRECT vers bucket Supabase (pas de backend)
+- ✅ Rate limiting respectueux (280K requêtes/jour)
+- ✅ **INSERT AUTOMATIQUE dans `files_queue`** pour Workers
+- ✅ **Contrôle START/STOP** : Depuis frontend (via backend proxy)
+- ✅ **2 Modes unifiés** : MAINTENANCE (5 codes) ou MASSIVE (20 codes)
 
 **CE QU'IL NE FAIT PAS** :
 - ❌ Parsing/extraction texte (Workers)
 - ❌ Génération embeddings (Workers)
 - ❌ Recherche sémantique (Backend)
-- ❌ Appels au backend
+- ❌ Collecte de métadonnées vides (filtre LEGIARTI + qualité)
+
+---
+
+## 🔥 FIX CRITIQUE : Filtre LEGIARTI (15 oct 2025)
+
+### **Problème Découvert**
+La table des matières (`/consult/legi/tableMatieres`) retourne :
+- **LEGISCTA** : Sections structurelles SANS texte (ex: "Partie législative", "Livre Ier")
+- **LEGIARTI** : Vrais articles AVEC texte juridique
+
+**Avant fix** : 10,000 docs collectés dont **90% vides** (< 300 chars après nettoyage HTML)
+
+### **Solution Implémentée**
+```python
+def extract_article_ids_recursive(self, articles: List[Dict]) -> List[str]:
+    """Extrait récursivement SEULEMENT les vrais articles (LEGIARTI)"""
+    article_ids = []
+    
+    for article in articles:
+        article_id = article.get("cid") or article.get("id")
+        
+        # ✅ FILTRE LEGIARTI : Garder SEULEMENT vrais articles
+        if article_id and article_id.startswith("LEGIARTI"):
+            article_ids.append(article_id)
+        elif article_id and article_id.startswith("LEGISCTA"):
+            # Section vide ignorée
+            logger.debug("⏭️ Section ignorée (pas de texte)", id=article_id)
+        
+        # Récursion
+        if "articles" in article:
+            child_ids = self.extract_article_ids_recursive(article["articles"])
+            article_ids.extend(child_ids)
+    
+    return article_ids
+```
+
+### **Résultats Après Fix**
+- ✅ **17/28 docs > 3K chars (60% qualité)**
+- ✅ **13 docs = 10K chars** (limite troncature WorkerLocal)
+- ✅ Contenu juridique réel : Nomenclatures ICPE, Principes OCDE BPL, Listes déchets
+- ✅ **0 documents vides** collectés
+
+---
+
+## 🔄 UNIFICATION MAINTENANCE = MASSIVE (15 oct 2025)
+
+### **Avant : 2 stratégies différentes** ❌
+- **MAINTENANCE** : `/legi/tableMatieres` + filtre LEGIARTI + qualité 200 chars
+- **MASSIVE** : Recherche par mots-clés (85+) sans filtre LEGIARTI → Métadonnées vides
+
+**Problème** : Incohérence → MASSIVE créait la DB avec docs vides, MAINTENANCE la maintenait avec docs qualité !
+
+### **Après : 1 stratégie unifiée** ✅
+Les 2 modes utilisent **EXACTEMENT la même stratégie** :
+1. `/consult/legi/tableMatieres` (hiérarchie complète)
+2. `extract_article_ids_recursive()` avec filtre LEGIARTI
+3. `/consult/getArticle` pour chaque ID
+4. Filtre qualité : texte > 200 chars après nettoyage HTML
+
+**Différence** :
+- **MAINTENANCE** : 5 codes prioritaires, CRON 2h
+- **MASSIVE** : 20 codes complets, Interval 10 min
+
+### **Nettoyage Code**
+- ✅ **-645 lignes de code mort** supprimées
+- ✅ **14 fonctions obsolètes** supprimées (legifrance_service.py)
+- ✅ **5 fonctions obsolètes** supprimées (scheduler)
+- ✅ **Mode URBANISME** supprimé (redondant)
+- Fichiers : 1031 → 526 lignes (service), 582 → 442 lignes (scheduler)
 
 ---
 

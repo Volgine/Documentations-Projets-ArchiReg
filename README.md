@@ -60,11 +60,13 @@ Cette documentation explique **l'architecture complète** du projet ArchiReg apr
 
 ## 🏛️ MICRO-SERVICE LÉGIFRANCE
 
-### **Version 2.5 - Auto-Sync Intelligent**
-- **Collection** : ~200-300 docs/min (mode MASSIVE)
-- **files_queue** : 1.47M fichiers (sync automatique)
+### **Version 3.0 - Unification + Filtre LEGIARTI**
+- **Stratégie unifiée** : MAINTENANCE = MASSIVE (même collecte de qualité)
+- **Filtre LEGIARTI** : Ignore sections vides (LEGISCTA), garde vrais articles
+- **Filtre qualité** : Texte > 200 chars après nettoyage HTML
+- **Résultat** : 60% docs > 3K chars (vs 10% avant fix)
+- **Code clean** : -645 lignes de code mort (1613 → 968 lignes)
 - **Auto-sync** : Vérifie cohérence Storage ↔ files_queue au démarrage
-- **Intelligent** : < 100k manquants → sync auto, > 100k → alert admin
 - **Persistance** : État scheduler sauvegardé (résilience crash)
 
 ---
