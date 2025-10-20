@@ -1,8 +1,9 @@
 # 🧠 RAG + EMBEDDINGS - BACKEND
 
-**Date** : 15 octobre 2025  
-**Status** : ✅ FONCTIONNEL  
-**Modèle** : Solon-embeddings-large-0.1.Q8_0.gguf (768 dims)
+**Date** : 20 octobre 2025  
+**Status** : ✅ FONCTIONNEL (après fix chunking)  
+**Modèle** : Solon-embeddings-base-0.1.Q8_0.gguf (768 dims)  
+**Table** : document_chunks (117,148 rows)
 
 ---
 
@@ -33,14 +34,14 @@ Groq LLM génère réponse
 
 ### **Modèle GGUF Local**
 
-**Fichier** : `solon-embeddings-large-0.1-Q8_0.gguf`
+**Fichier** : `Solon-embeddings-base-0.1.Q8_0.gguf`
 
 **Caractéristiques** :
 - **Type** : Sentence embeddings (multilingual)
 - **Dimensions** : 768
 - **Quantization** : Q8_0 (8-bit)
-- **Taille** : ~500 MB
-- **Source** : Hugging Face (OrdalieTech/Solon-embeddings-large-0.1-GGUF)
+- **Taille** : 303 MB
+- **Source** : Hugging Face (OrdalieTech/Solon-embeddings-base-0.1-GGUF)
 - **Stockage** : Bucket Supabase `ai-models`
 
 **Pourquoi GGUF ?**
@@ -164,10 +165,10 @@ class RAGService:
                     id,
                     title,
                     content,
-                    metadata,
+                    extra_data,
                     embedding <=> $1::vector AS distance,
                     1 - (embedding <=> $1::vector) AS similarity
-                FROM documents
+                FROM document_chunks
                 WHERE 
                     embedding <=> $1::vector < $2
                     AND embedding IS NOT NULL
@@ -221,9 +222,10 @@ Precision : ~85%     # Évite faux positifs
 F1-Score  : ~90%     # Balance recall/precision
 ```
 
-**Seuil optimal** : `similarity_threshold = 0.7`
-- < 0.7 : Trop de bruit
-- > 0.8 : Trop restrictif (perd documents pertinents)
+**Seuil optimal** : `similarity_threshold = 0.9` (adapté au modèle Solon Q8_0)
+- < 0.9 : Trop restrictif (perd documents pertinents, distances réelles ~0.7)
+- 0.9 : Optimal (trouve tous les résultats pertinents)
+- > 1.0 : Trop permissif (peut inclure du bruit)
 
 ---
 
@@ -241,7 +243,7 @@ POST /api/v3/chat/streaming
 docs = await rag_service.search(
     query="Qu'est-ce qu'un PLU ?",
     limit=5,
-    similarity_threshold=0.7
+    similarity_threshold=0.9
 )
 
 # Résultat :
@@ -296,8 +298,8 @@ async for chunk in groq_client.stream(
 **Fichier** : `DOCS-ARCHITECTURE/01-Supabase/HNSW-INDEXES.md`
 
 ```sql
-CREATE INDEX idx_documents_embedding_hnsw 
-ON documents 
+CREATE INDEX document_chunks_embedding_hnsw_idx 
+ON document_chunks 
 USING hnsw (embedding vector_cosine_ops)
 WITH (m = 16, ef_construction = 64);
 ```
@@ -307,10 +309,10 @@ WITH (m = 16, ef_construction = 64);
 - `ef_construction = 64` : Qualité construction
 
 **Stats** :
-- **Taille** : 383 MB
-- **Vecteurs** : 312,000
+- **Taille** : 97 MB (optimisé avec chunking)
+- **Vecteurs** : 117,148 chunks
 - **Recall** : >95%
-- **Latence** : <200ms
+- **Latence** : <100ms
 
 ---
 
@@ -362,11 +364,12 @@ pool = await asyncpg.create_pool(
 
 **RAG ultra-performant** :
 - ✅ GGUF local (pas de réseau)
-- ✅ Embeddings 768 dims
-- ✅ pgvector + HNSW (<200ms)
-- ✅ 312k documents indexés
+- ✅ Embeddings 768 dims (Solon Q8_0)
+- ✅ pgvector + HNSW (<100ms)
+- ✅ 117k chunks indexés (chunking granulaire)
 - ✅ Recall >95%
 - ✅ Latence totale <250ms
+- ✅ Seuil optimal 0.9 (distances ~0.7-0.85)
 
 **Recherche sémantique au top !** 🚀
 

@@ -29,7 +29,7 @@ Documentation complète de l'infrastructure Supabase (Base de données PostgreSQ
 - `CRON-JOBS.md` : Jobs pg_cron (14 jobs)
 - `RLS-POLICIES.md` : Sécurité Row Level Security
 - `HNSW-INDEXES.md` : Index vectoriels pgvector
-- `EDGE-FUNCTIONS-GUIDE.md` : 3 Edge Functions
+- `EDGE-FUNCTIONS-GUIDE.md` : 4 Edge Functions
 - `OPTIMISATIONS.md` : Performance + sécurité
 - `CONNEXION-PSQL.md` : Guide connexion directe
 - `AUDIT.md` : Audit sécurité complet
@@ -67,7 +67,7 @@ Micro-service dédié à la collecte de données juridiques depuis l'API PISTE L
 - Render.com hosting
 
 **Stats** :
-- 259 fichiers collectés (post-fix qualité)
+- 13,459 fichiers collectés
 - Mode MAINTENANCE actif
 - Filters : LEGIARTI + 200 chars minimum
 
@@ -96,8 +96,9 @@ Backend principal : API Chat + RAG + Embeddings + Proxy Micro-service.
 - Render.com hosting
 
 **Stats** (v5.0) :
-- 312k documents indexés
-- Latence RAG <200ms ⬆️ (optimisé)
+- 117k chunks indexés (chunking v3.0)
+- Latence RAG <100ms ⬆️ (optimisé)
+- Distance min : 0.681
 - Recall >95%
 - Code mort éliminé (-42 fichiers)
 - Features enterprise (ML security, sanitizer unifié)
@@ -146,7 +147,7 @@ Frontend Next.js : Chat streaming + Dashboard Admin + Tests système.
 
 ### **05-WorkerLocal** 🔧
 
-CLI Python pour parsing documents + génération embeddings **GLOBAUX** (document entier).
+CLI Python pour parsing documents + **chunking granulaire** + génération embeddings **PAR CHUNK**.
 
 📁 **Dossier** : `05-WorkerLocal/`
 
@@ -156,39 +157,17 @@ CLI Python pour parsing documents + génération embeddings **GLOBAUX** (documen
 
 **Technologies** :
 - Python 3.11
+- LangChain RecursiveCharacterTextSplitter
 - llama-cpp-python (GGUF)
-- asyncpg
-- Multi-workers (3 workers)
+- Supabase API (UPSERT idempotent)
 
-**Stats** :
-- 312k documents traités ✅
-- Vitesse : 37.5 fichiers/s (3 workers)
-- Taux erreur : <0.03%
-
----
-
-### **06-WorkerLocal-Chunk** 🧩
-
-CLI Python pour parsing documents + chunking + génération embeddings **GRANULAIRES** (chunks).
-
-📁 **Dossier** : `06-WorkerLocal-Chunk/`
-
-**Contenu** :
-- `README.md` : Guide général WorkerLocal Chunk
-- `ARCHITECTURE.md` : Architecture technique chunking
-
-**Technologies** :
-- Python 3.11
-- tiktoken (tokenization)
-- llama-cpp-python (GGUF)
-- asyncpg
-- Multi-workers (3 workers)
-
-**Stats** :
-- 6M chunks estimés (ratio 1:20)
-- Chunk size : 500-1000 tokens
-- Overlap : 10%
-- Status : ⏸️ Prêt (pas encore lancé)
+**Stats v3.0** :
+- 117,148 chunks générés ✅
+- 13,441 fichiers traités ✅
+- Vitesse : ~87 fichiers/min (50 concurrency)
+- Chunking : LangChain (800/200)
+- UPSERT idempotent
+- Taux erreur : <0.1%
 
 ---
 
@@ -205,24 +184,22 @@ graph TB
         MS -->|INSERT| FQ
     end
     
-    subgraph "2️⃣ TRAITEMENT: WORKERS"
-        WL[WorkerLocal x3<br/>✅ 312k docs]
-        WLC[WorkerLocal Chunk x3<br/>⏸️ Prêt]
+    subgraph "2️⃣ TRAITEMENT: WORKERLOCAL v3.0"
+        WL[WorkerLocal Ultra-Turbo<br/>✅ 117k chunks]
+        LC[LangChain Splitter<br/>800/200]
         
-        FQ -->|SELECT pending| WL
-        FQ -.->|SELECT pending_chunk| WLC
+        FQ -->|SELECT pending (100)| WL
+        WL -->|Parse + Chunk| LC
+        LC -->|~8.7 chunks/fichier| EMB[GGUF Embeddings]
+        EMB -->|UPSERT idempotent| CHUNKS[document_chunks<br/>117,148 rows]
         
-        WL -->|Parse + GGUF Embedding GLOBAL| DOCS[documents<br/>312k rows]
-        WLC -.->|Parse + Chunk + GGUF Embedding| CHUNKS[document_chunks<br/>0 rows → 6M]
-        
-        DOCS -->|Vecteurs 768 dims| HNSW[pgvector + HNSW<br/>383 MB]
-        CHUNKS -.->|Vecteurs 768 dims| HNSW
+        CHUNKS -->|Vecteurs 768 dims| HNSW[pgvector + HNSW<br/>97 MB]
     end
     
     subgraph "3️⃣ BACKEND: RAG"
         BE[Backend Agent-Orchestrator]
         GROQ[Groq API<br/>llama-3.3-70b-versatile]
-        GGUF[GGUF Model Local<br/>solon-embeddings-large]
+        GGUF[GGUF Model Local<br/>solon-embeddings-base]
         
         BE -->|READ ONLY| HNSW
         BE -->|Génère embedding query| GGUF
@@ -243,8 +220,7 @@ graph TB
     
     style WL fill:#4ecdc4
     style BE fill:#ff6b6b
-    style WLC fill:#95e1d3,stroke-dasharray: 5 5
-    style CHUNKS fill:#95e1d3,stroke-dasharray: 5 5
+    style CHUNKS fill:#95e1d3
     style GGUF fill:#ffd93d
     style BKT fill:#ffd93d
 ```
@@ -262,7 +238,6 @@ graph TB
 | **Micro-service** | Render | https://micro-service-data-legifrance-piste.onrender.com | ✅ Live |
 | **Supabase** | Supabase Cloud | https://joozqsjbcwrqyeqepnev.supabase.co | ✅ Live |
 | **WorkerLocal** | Local Windows | - | ✅ Terminé |
-| **WorkerLocal Chunk** | Local Windows | - | ⏸️ Prêt |
 
 ---
 
@@ -272,15 +247,14 @@ graph TB
 
 | Table | Rows | Size | Index HNSW | Status |
 |-------|------|------|------------|--------|
-| `documents` | 312,000 | 850 MB | 383 MB (m=16) | ✅ Complet |
-| `document_chunks` | 0 → 6M | 0 → 2.5 GB | ~2.5 GB (m=24) | ⏸️ Prêt |
-| `files_queue` | 259 | 45 MB | - | ✅ Synchro auto |
-| `parsed_files` | 312,000 | 120 MB | - | ✅ Tracking OK |
-| `conversations` | ~500 | 5 MB | - | ✅ Actif |
-| `messages` | ~2,000 | 15 MB | - | ✅ Actif |
+| `document_chunks` | 117,148 | 803 MB | 97 MB (m=16, ef=64) | ✅ Complet |
+| `files_queue` | 13,459 | ~2 MB | - | ✅ Tous traités |
+| `parsed_files` | 13,458 | ~5 MB | - | ✅ Tracking OK |
+| `conversations` | 219 | 200 kB | - | ✅ Actif |
+| `chat_messages` | 16,544 | ~10 MB | - | ✅ Actif |
 
 **Total DB** : ~1.5 GB / 8 GB (18.75% utilisé)  
-**Plan Supabase** : Pro (suffisant pour 10-15x growth)
+**Plan Supabase** : Pro (suffisant pour scaling futur)
 
 ---
 
@@ -288,11 +262,13 @@ graph TB
 
 | Métrique | Valeur | Notes |
 |----------|--------|-------|
-| **RAG Latence** | <250ms | Embedding + Search |
+| **RAG Latence** | <100ms | Embedding + Search HNSW |
+| **RAG Distance typique** | 0.7-0.85 | Similaire (modèle Solon Q8_0) |
+| **RAG Seuil optimal** | 0.9 | Trouve 8-20 chunks pertinents |
 | **Chat Streaming** | <500ms TTFB | Groq ultra-rapide |
 | **Edge Functions** | <150ms | Latence moyenne |
-| **Worker Speed** | 37.5 fichiers/s | 3 workers simultanés |
-| **HNSW Recall** | >95% | Précision recherche |
+| **Worker Speed** | ~87 fichiers/min | 50 concurrency |
+| **Chunking** | 800/200 chars | LangChain optimal |
 
 ---
 
@@ -302,9 +278,19 @@ graph TB
 
 **Problème** : Workers (Windows AVX2) ≠ Backend (Linux no-AVX2)  
 **Solution** : Forcer compilation source sans AVX2/FMA  
-**Résultat** : ✅ RAG fonctionne (0 → 312k documents trouvés)
+**Résultat** : ✅ Embeddings compatibles (fix critique)
 
 **Doc** : `16-FIX-EMBEDDINGS-INCOMPATIBLES.md`
+
+---
+
+### **4. Fix RAG avec Chunking v3.0** (19-20 octobre 2025)
+
+**Problème** : RAG retourne 0 résultats (documents trop gros, avg 6,700 chars + seuil 0.7 trop strict)  
+**Solution** : Chunking granulaire LangChain (800/200) + UPSERT idempotent + Seuil 0.9  
+**Résultat** : ✅ RAG fonctionnel (distance 0.7-0.85, 8-20 résultats par query)
+
+**Doc** : `05-WorkerLocal/ARCHITECTURE.md` + `01-Supabase/HNSW-INDEXES.md`
 
 ---
 
@@ -328,23 +314,18 @@ graph TB
 
 ---
 
-## 🚀 PROCHAINES ÉTAPES
+## 🚀 ACCOMPLISSEMENTS
 
-### **Phase 1 : Chunking granulaire** ⏸️
+### **Phase 1 : Chunking granulaire** ✅
 
-- ✅ WorkerLocal Chunk développé
-- ⏸️ Lancement 3 workers
-- ⏸️ Génération 6M chunks
-- ⏸️ Construction index HNSW (m=24)
+- ✅ WorkerLocal v3.0 développé avec LangChain
+- ✅ 117,148 chunks générés
+- ✅ Construction index HNSW (m=16, ef=64)
+- ✅ RAG fonctionnel (seuil 0.9, distance 0.7-0.85)
+- ✅ Migration table documents → document_chunks
+- ✅ Optimisation seuil de similarité adapté au modèle Solon
 
-### **Phase 2 : RAG Hybride** 🔮
-
-- ⏸️ Recherche globale (documents)
-- ⏸️ Recherche granulaire (chunks)
-- ⏸️ Combinaison résultats
-- ⏸️ Citations précises passages
-
-### **Phase 3 : Optimisations** 🔮
+### **Phase 2 : Optimisations Futures** 🔮
 
 - ⏸️ Caching embeddings
 - ⏸️ Reranking résultats RAG
@@ -367,18 +348,20 @@ graph TB
 4. Frontend → `04-ArchiReg-Front/README.md`
 
 ### **Pour lancer les workers** :
-1. WorkerLocal → `05-WorkerLocal/README.md`
-2. WorkerLocal Chunk → `06-WorkerLocal-Chunk/README.md`
+1. WorkerLocal v3.0 (Chunking intégré) → `05-WorkerLocal/README.md`
 
 ---
 
 ## 🎉 Conclusion
 
-**Architecture ArchiReg v5.0** :
-- ✅ 6 services déployés
-- ✅ 312k documents indexés
-- ✅ RAG ultra-performant (<250ms)
+**Architecture ArchiReg v5.1 - Chunking v3.0** :
+- ✅ 5 services déployés
+- ✅ 117k chunks indexés (chunking granulaire)
+- ✅ RAG ultra-performant (<100ms, seuil 0.9, distance 0.7-0.85)
 - ✅ Tests système (27 tests)
+- ✅ Chunking LangChain (800/200)
+- ✅ UPSERT idempotent
+- ✅ Migration documents → document_chunks
 - ✅ Documentation complète réorganisée
 - ✅ Qualité collecte 100%
 

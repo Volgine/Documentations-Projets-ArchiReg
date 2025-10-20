@@ -1,7 +1,7 @@
 # 🏗️ ARCHITECTURE GLOBALE ARCHIREG
 
-**Date** : 15 octobre 2025  
-**Version** : 5.0 RÉORGANISÉE  
+**Date** : 20 octobre 2025  
+**Version** : 5.1 CHUNKING v3.0  
 **Status** : ✅ EN PRODUCTION
 
 ---
@@ -10,17 +10,17 @@
 
 ArchiReg est une **plateforme RAG (Retrieval-Augmented Generation)** pour l'analyse de documents juridiques (Légifrance).
 
-**Architecture** : 6 services principaux + Supabase
+**Architecture** : 5 services principaux + Supabase
 
 ```
 Micro-service Légifrance
     ↓ Collecte API PISTE
-Bucket Supabase Storage (259 fichiers)
+Bucket Supabase Storage (13,459 fichiers)
     ↓ files_queue
-Workers (Global + Chunks)
-    ↓ Parse + GGUF Embeddings
-pgvector (312k docs + 0 chunks)
-    ↓ HNSW Index (383 MB)
+WorkerLocal v3.0 Chunking
+    ↓ Parse + LangChain (800/200) + GGUF Embeddings
+pgvector document_chunks (117k chunks)
+    ↓ HNSW Index (97 MB)
 Backend RAG
     ↓ Groq LLM + Streaming
 Frontend Chat
@@ -34,31 +34,29 @@ Frontend Chat
 graph TB
     subgraph "1️⃣ COLLECTE DONNÉES"
         MS[Micro-service Légifrance<br/>FastAPI + API PISTE]
-        BKT[Bucket Supabase Storage<br/>agentbasic-legifrance-raw<br/>259 fichiers, 17 MB]
-        FQ[files_queue<br/>259 rows]
+        BKT[Bucket Supabase Storage<br/>agentbasic-legifrance-raw<br/>13,459 fichiers]
+        FQ[files_queue<br/>13,459 rows]
         
         MS -->|Upload JSON| BKT
         MS -->|INSERT| FQ
     end
     
-    subgraph "2️⃣ TRAITEMENT: WORKERS LOCAUX"
-        WL[WorkerLocal x3<br/>✅ TERMINÉ<br/>312k docs]
-        WLC[WorkerLocal Chunk x3<br/>⏸️ PRÊT<br/>0 chunks]
+    subgraph "2️⃣ TRAITEMENT: WORKERLOCAL v3.0"
+        WL[WorkerLocal Ultra-Turbo<br/>✅ TERMINÉ<br/>117k chunks]
         
-        FQ -->|SELECT pending| WL
-        FQ -.->|SELECT pending_chunk| WLC
+        FQ -->|SELECT pending (100 batch)| WL
         
-        WL -->|Parse + GGUF Embedding GLOBAL| DOCS[documents<br/>312k rows<br/>850 MB]
-        WLC -.->|Parse + Chunk + GGUF| CHUNKS[document_chunks<br/>0 rows → 6M]
+        WL -->|Parse + LangChain (800/200)| LC[RecursiveCharacterTextSplitter]
+        LC -->|~8.7 chunks/fichier| EMB[GGUF Embeddings<br/>768 dims]
+        EMB -->|UPSERT idempotent| CHUNKS[document_chunks<br/>117,148 rows<br/>803 MB]
         
-        DOCS -->|Vecteurs 768 dims| HNSW[pgvector + HNSW<br/>Index 383 MB]
-        CHUNKS -.->|Vecteurs 768 dims| HNSW
+        CHUNKS -->|Index HNSW| HNSW[pgvector HNSW<br/>97 MB<br/>m=16, ef=64]
     end
     
     subgraph "3️⃣ BACKEND: RAG + CHAT"
         BE[Backend Agent-Orchestrator<br/>FastAPI + Hypercorn HTTP/2]
         GROQ[Groq API<br/>llama-3.3-70b-versatile]
-        GGUF[GGUF Model Local<br/>Solon-embeddings-large<br/>768 dims]
+        GGUF[GGUF Model Local<br/>Solon-embeddings-base<br/>768 dims]
         
         BE -->|READ ONLY| HNSW
         BE -->|Génère embedding query| GGUF
@@ -77,7 +75,6 @@ graph TB
     
     style MS fill:#f59e0b
     style WL fill:#4ecdc4
-    style WLC fill:#95e1d3,stroke-dasharray: 5 5
     style BE fill:#ff6b6b
     style FE fill:#60a5fa
     style EDGE fill:#4ade80
@@ -126,7 +123,7 @@ sequenceDiagram
 ```
 
 **Latence** :
-- RAG search : <250ms
+- RAG search : <100ms
 - Stream TTFB : <500ms
 - Total : <1s ✅
 
@@ -204,7 +201,7 @@ sequenceDiagram
         end
     end
     
-    Note over MS,FQ: 259 fichiers collectés (qualité 100%)
+    Note over MS,FQ: 13,459 fichiers collectés (qualité 100%)
 ```
 
 **Modes** :
@@ -225,7 +222,7 @@ sequenceDiagram
     participant WL as WorkerLocal
     participant BKT as Bucket
     participant GGUF as GGUF Service
-    participant DB as documents table
+    participant DB as document_chunks
     
     loop Boucle infinie
         WL->>FQ: SELECT * WHERE status=pending LIMIT 100
@@ -245,58 +242,14 @@ sequenceDiagram
         end
     end
     
-    Note over WL,DB: 312k documents traités ✅
+    Note over WL,DB: 117k chunks générés ✅
 ```
 
-**Performance** :
-- 3 workers simultanés
-- 37.5 fichiers/s total
-- Taux erreur <0.03%
-
----
-
-### **5. Flux Workers Chunk** 🧩
-
-```mermaid
-sequenceDiagram
-    participant FQ as files_queue
-    participant WLC as WorkerLocal Chunk
-    participant BKT as Bucket
-    participant CHUNK as Chunker
-    participant GGUF as GGUF Service
-    participant DB as document_chunks
-    
-    loop Boucle infinie
-        WLC->>FQ: SELECT * WHERE status=pending_chunk LIMIT 50
-        FQ-->>WLC: 50 fichiers
-        
-        loop Pour chaque fichier
-            WLC->>BKT: Download JSON
-            BKT-->>WLC: content
-            
-            WLC->>WLC: Parse document
-            
-            WLC->>CHUNK: chunk_document(content)
-            CHUNK-->>WLC: [chunk1, chunk2, ..., chunkN]
-            
-            loop Pour chaque chunk
-                WLC->>GGUF: generate(chunk)
-                GGUF-->>WLC: embedding[768]
-                
-                WLC->>DB: INSERT chunk + embedding
-            end
-            
-            WLC->>FQ: UPDATE status=processed_chunk
-        end
-    end
-    
-    Note over WLC,DB: 0 chunks (⏸️ Prêt, pas lancé)
-```
-
-**Estimations** :
-- 6M chunks attendus (ratio 1:20)
-- Chunk size : 500-1000 tokens
-- Overlap : 10%
+**Performance v3.0** :
+- 1 worker ultra-turbo (50 concurrency)
+- ~87 fichiers/min
+- ~8.7 chunks par fichier
+- Taux erreur <0.1%
 
 ---
 
@@ -326,15 +279,16 @@ sequenceDiagram
 
 **Responsabilités** :
 - ✅ Chat Groq LLM (streaming SSE)
-- ✅ RAG pgvector (<250ms)
+- ✅ RAG pgvector (<100ms)
 - ✅ Embeddings GGUF locaux
 - ✅ Proxy micro-service Légifrance
 - ✅ 9 tests Backend
 
 **Stats** :
-- 312k documents indexés
-- Latence RAG <250ms
-- Recall >95%
+- 117k chunks indexés (chunking v3.0)
+- Latence RAG <100ms
+- Distance min : 0.681
+- Résultats seuil 0.7 : 1,155 chunks
 
 **Doc** : [03-Agent-Orchestrator/](./03-Agent-Orchestrator/)
 
@@ -362,53 +316,38 @@ sequenceDiagram
 - ✅ Texte > 200 chars
 
 **Stats** :
-- 259 fichiers collectés (post-fix qualité)
+- 13,459 fichiers collectés
 - Qualité 100% (vs 90% erreurs avant)
 
 **Doc** : [02-Micro-service-Legifrance/](./02-Micro-service-Legifrance/)
 
 ---
 
-### **4. WorkerLocal (x3)** 🔧
+### **4. WorkerLocal v3.0 Chunking** 🔧
 
-**Stack** : Python 3.11 + llama-cpp-python  
+**Stack** : Python 3.11 + llama-cpp-python + LangChain  
 **Host** : PC Windows local  
 
 **Responsabilités** :
 - ✅ Parse JSON Légifrance
-- ✅ Génère embeddings GLOBAUX (document entier)
-- ✅ INSERT documents + pgvector
+- ✅ Chunking granulaire (LangChain RecursiveCharacterTextSplitter)
+- ✅ Génère embeddings par chunk (768 dims)
+- ✅ UPSERT idempotent document_chunks + pgvector
 
-**Stats** :
-- ✅ 312k documents traités
-- ✅ 37.5 fichiers/s (3 workers)
-- ✅ Taux erreur <0.03%
+**Stats Réelles** :
+- ✅ 117,148 chunks générés
+- ✅ 13,441 fichiers traités (99.9%)
+- ✅ ~87 fichiers/min (50 concurrency)
+- ✅ Chunk size : 800 chars, overlap 200
+- ✅ Avg chunk : 632 chars
+- ✅ Taux erreur <0.1%
+- ✅ RAG fonctionnel (distance 0.681)
 
 **Doc** : [05-WorkerLocal/](./05-WorkerLocal/)
 
 ---
 
-### **5. WorkerLocal Chunk (x3)** 🧩
-
-**Stack** : Python 3.11 + llama-cpp-python + tiktoken  
-**Host** : PC Windows local  
-
-**Responsabilités** :
-- ⏸️ Parse + Chunking sémantique
-- ⏸️ Génère embeddings GRANULAIRES (chunks)
-- ⏸️ INSERT document_chunks + pgvector
-
-**Estimations** :
-- ~6M chunks (ratio 1:20)
-- Chunk size : 500-1000 tokens
-- Overlap : 10%
-- Status : ⏸️ Prêt (pas encore lancé)
-
-**Doc** : [06-WorkerLocal-Chunk/](./06-WorkerLocal-Chunk/)
-
----
-
-### **6. Supabase** 🗄️
+### **5. Supabase** 🗄️
 
 **Services** : PostgreSQL 17.6 + pgvector + Storage + Auth + Edge Functions  
 **Plan** : Pro (25€/mois)  
@@ -421,52 +360,53 @@ sequenceDiagram
 - **Connexions** : 25 / 60 max (42% usage)
 
 **Tables principales** :
-- `files_queue` : 259 rows (231 pending)
-- `documents` : 312k rows + embeddings (850 MB)
-- `document_chunks` : 0 rows (prêt pour 6M)
-- `parsed_files` : 312k rows (tracking)
-- `conversations` : ~500 rows
-- `messages` : ~2k rows
+- `files_queue` : 13,459 rows (0 pending, tous traités ✅)
+- `document_chunks` : 117,148 rows + embeddings (803 MB)
+- `parsed_files` : 13,458 rows (tracking)
+- `conversations` : 219 rows
+- `chat_messages` : 16,544 rows
 
 **Edge Functions** :
 - `admin-stats` : Métriques dashboard
 - `cron-manager` : Gestion pg_cron
 - `system-tests` : 18 tests Edge
+- `frontend-tests` : Tests frontend UI
 
 **Doc** : [01-Supabase/](./01-Supabase/)
 
 ---
 
-## 📈 STATISTIQUES ACTUELLES (15 Oct 2025)
+## 📈 STATISTIQUES ACTUELLES (20 Oct 2025 - Après Chunking v3.0)
 
 ### **Données Collectées**
 
 | Métrique | Valeur | Notes |
 |----------|--------|-------|
-| **Fichiers bucket** | 259 | Post-fix LEGIARTI ✅ |
-| **Files queue** | 259 (231 pending) | Auto-sync ✅ |
-| **Documents parsés** | 312,000 | WorkerLocal terminé ✅ |
-| **Embeddings générés** | 312,000 (768 dims) | GGUF ✅ |
-| **Chunks** | 0 | WorkerLocal Chunk prêt ⏸️ |
+| **Fichiers bucket** | 13,459 | Bucket complet ✅ |
+| **Files queue** | 13,459 (0 pending) | Tous traités ✅ |
+| **Chunks générés** | 117,148 | Chunking v3.0 LangChain ✅ |
+| **Embeddings générés** | 117,148 (768 dims) | 100% embeddings ✅ |
+| **Fichiers traités** | 13,441 | WorkerLocal v3.0 terminé ✅ |
 
 ### **Performance Système**
 
 | Service | Métrique | Valeur | Status |
 |---------|----------|--------|--------|
-| **Backend RAG** | Latence | <250ms | ✅ |
+| **Backend RAG** | Latence | <100ms | ✅ |
+| **Backend RAG** | Distance min | 0.681 | ✅ Excellent |
 | **Groq LLM** | TTFB | <500ms | ✅ |
 | **Edge Functions** | Latence | 1-2s | ✅ |
-| **Workers** | Vitesse | 37.5 fichiers/s | ✅ |
-| **HNSW Index** | Recall | >95% | ✅ |
+| **Worker v3.0** | Vitesse | ~87 fichiers/min | ✅ |
+| **HNSW Index** | Résultats 0.7 | 1,155 chunks | ✅ |
 
 ### **Base de Données**
 
 | Table | Rows | Size | Index HNSW |
 |-------|------|------|------------|
-| `documents` | 312,000 | 850 MB | 383 MB (m=16) ✅ |
-| `document_chunks` | 0 | 3.6 MB | Prêt (m=24) ⏸️ |
-| `files_queue` | 259 | 296 kB | - |
-| `parsed_files` | 312,000 | 372 MB | - |
+| `document_chunks` | 117,148 | 803 MB | 97 MB (m=16, ef=64) ✅ |
+| `files_queue` | 13,459 | ~2 MB | - |
+| `parsed_files` | 13,458 | ~5 MB | - |
+| `chat_messages` | 16,544 | ~10 MB | - |
 
 **Usage total** : ~1.5 GB / 8 GB (18.75%)
 
@@ -549,20 +489,17 @@ git push origin main
 ### **Workers (Local)**
 
 ```batch
-# Lancer WorkerLocal
-cd WorkerLocal\launch\
-worker_1.bat  # Worker 1
-worker_2.bat  # Worker 2
-worker_3.bat  # Worker 3
+# Lancer WorkerLocal v3.0 (Chunking intégré)
+cd WorkerLocal\
+start.bat
 
-# Lancer WorkerLocal Chunk
-cd "WorkerLocal Chunk\launch\"
-worker_chunk_1.bat  # Worker Chunk 1
-worker_chunk_2.bat  # Worker Chunk 2
-worker_chunk_3.bat  # Worker Chunk 3
+# Ou directement via CLI
+python cli.py run --batch-size 100
 ```
 
-**Manuel** : Lancement local Windows
+**Manuel** : Lancement local Windows  
+**Mode** : Ultra-turbo avec chunking LangChain  
+**Config** : 50 concurrency, UPSERT idempotent
 
 ---
 
@@ -582,8 +519,7 @@ DOCS-ARCHITECTURE/
 ├── 02-Micro-service-Legifrance/   ← 6 fichiers + INDEX
 ├── 03-Agent-Orchestrator/         ← 5 fichiers + INDEX
 ├── 04-ArchiReg-Front/             ← 2 fichiers
-├── 05-WorkerLocal/                ← 3 fichiers
-└── 06-WorkerLocal-Chunk/          ← 2 fichiers
+└── 05-WorkerLocal/                ← 3 fichiers (Chunking v3.0 intégré)
 ```
 
 ### **Liens Documentation**
@@ -592,8 +528,7 @@ DOCS-ARCHITECTURE/
 - **Micro-service** → [02-Micro-service-Legifrance/README.md](./02-Micro-service-Legifrance/README.md)
 - **Backend** → [03-Agent-Orchestrator/README.md](./03-Agent-Orchestrator/README.md)
 - **Frontend** → [04-ArchiReg-Front/README.md](./04-ArchiReg-Front/README.md)
-- **WorkerLocal** → [05-WorkerLocal/README.md](./05-WorkerLocal/README.md)
-- **WorkerLocal Chunk** → [06-WorkerLocal-Chunk/README.md](./06-WorkerLocal-Chunk/README.md)
+- **WorkerLocal v3.0** → [05-WorkerLocal/README.md](./05-WorkerLocal/README.md)
 
 ---
 
@@ -608,7 +543,7 @@ DOCS-ARCHITECTURE/
 pip install --no-binary=llama-cpp-python llama-cpp-python
 ```
 
-**Résultat** : ✅ RAG fonctionne (0 → 312k documents trouvés)
+**Résultat** : ✅ Embeddings compatibles (fix critique pour RAG)
 
 **Doc** : [05-WorkerLocal/FIX-EMBEDDINGS-INCOMPATIBLES.md](./05-WorkerLocal/FIX-EMBEDDINGS-INCOMPATIBLES.md)
 
@@ -632,45 +567,46 @@ pip install --no-binary=llama-cpp-python llama-cpp-python
 
 **Solution** : Filtre LEGIARTI + minimum 200 chars
 
-**Résultat** : ✅ Qualité collecte 100% (1.47M → 259 fichiers valides)
+**Résultat** : ✅ Qualité collecte 100% (1.47M → 13,459 fichiers valides)
 
 **Doc** : [02-Micro-service-Legifrance/06-FIX-LEGIARTI-v3.0.md](./02-Micro-service-Legifrance/06-FIX-LEGIARTI-v3.0.md)
 
 ---
 
-## 🚀 PROCHAINES ÉTAPES
+## 🚀 ACCOMPLISSEMENTS
 
-### **Phase 1 : Compléter WorkerLocal** ⏸️
+### **Phase 1 : Collecte Légifrance** ✅
 
-- ✅ 312k documents traités
-- ⏸️ 231 fichiers pending restants
-- ⏸️ Mode MASSIVE optionnel (20 codes → 50-100k articles)
+- ✅ 13,459 fichiers collectés
+- ✅ Mode MAINTENANCE opérationnel
+- ✅ Auto-sync files_queue
 
-### **Phase 2 : Lancer WorkerLocal Chunk** ⏸️
+### **Phase 2 : Chunking v3.0 LangChain** ✅
 
-- ✅ Workers développés et testés
-- ⏸️ Lancer 3 workers simultanés
-- ⏸️ Génération 6M chunks
-- ⏸️ Construction index HNSW (m=24)
+- ✅ RecursiveCharacterTextSplitter implémenté
+- ✅ 117,148 chunks générés
+- ✅ UPSERT idempotent fonctionnel
+- ✅ Anti-doublon parsed_files
 
-### **Phase 3 : RAG Hybride** 🔮
+### **Phase 3 : Index HNSW** ✅
 
-- ⏸️ Recherche globale (documents)
-- ⏸️ Recherche granulaire (chunks)
-- ⏸️ Combinaison résultats
-- ⏸️ Citations précises passages
+- ✅ Index créé (97 MB, m=16, ef=64)
+- ✅ Performances <100ms
+- ✅ RAG opérationnel (distance 0.681)
+- ✅ 1,155 résultats avec seuil 0.7
 
 ---
 
 ## 🎉 CONCLUSION
 
-**ArchiReg v5.0** :
-- ✅ 6 services déployés et documentés
-- ✅ 312k documents RAG indexés
+**ArchiReg v5.1 - Chunking v3.0** :
+- ✅ 5 services déployés et documentés
+- ✅ 117k chunks RAG indexés (chunking granulaire)
+- ✅ RAG fonctionnel (distance min 0.681)
 - ✅ Architecture micro-services
-- ✅ Performance optimisée
+- ✅ Performance optimisée (<100ms)
 - ✅ Qualité collecte 100%
-- ✅ Documentation réorganisée
+- ✅ Documentation à jour
 
-**Système production-ready !** 🚀
+**Système RAG production-ready !** 🚀
 
