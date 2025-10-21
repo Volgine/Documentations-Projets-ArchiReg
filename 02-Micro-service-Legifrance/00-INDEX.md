@@ -75,17 +75,19 @@
 
 ---
 
-### **🔧 FIXES CRITIQUES** (1 fichier)
+### **🔧 FIXES CRITIQUES** (2 fichiers)
 
 | Fichier | Description | Taille | Importance |
 |---------|-------------|--------|-----------|
 | [06-FIX-LEGIARTI-v3.0.md](./06-FIX-LEGIARTI-v3.0.md) | **Fix qualité collecte** (LEGIARTI + 100 chars minimum) | 194 lignes | ⭐⭐⭐ |
+| [07-GESTION-VERSIONS-UPDATES.md](./07-GESTION-VERSIONS-UPDATES.md) | **Gestion versions** (UPSERT, déduplication, historique) | - | ⭐⭐⭐ |
 
 **Contenu** :
 - Problème : 90% documents vides (LEGISCTA vs LEGIARTI)
 - Solution : Filtre LEGIARTI + qualité 100 chars
 - Résultat : 100% qualité collecte
-- Impact : 1.47M → 259 fichiers (qualité garantie)
+- Impact : 1.47M → 13,459 fichiers (qualité garantie)
+- **NOUVEAU** : Comment les mises à jour d'articles sont gérées (UPSERT vs nouveau fichier)
 
 ---
 
@@ -113,6 +115,7 @@
 2. [03-RATE-LIMITING.md](./03-RATE-LIMITING.md) - Rate limiting avancé
 3. [04-PERSISTANCE-ETAT.md](./04-PERSISTANCE-ETAT.md) - Gestion état
 4. [06-FIX-LEGIARTI-v3.0.md](./06-FIX-LEGIARTI-v3.0.md) - Qualité données
+5. [07-GESTION-VERSIONS-UPDATES.md](./07-GESTION-VERSIONS-UPDATES.md) - Versions & UPSERT
 
 ---
 
@@ -134,21 +137,22 @@
 ### **Qualité Données**
 - Fix LEGIARTI → [06-FIX-LEGIARTI-v3.0.md](./06-FIX-LEGIARTI-v3.0.md)
 - Auto-sync → [05-AUTO-SYNC.md](./05-AUTO-SYNC.md)
+- Gestion versions → [07-GESTION-VERSIONS-UPDATES.md](./07-GESTION-VERSIONS-UPDATES.md)
 
 ---
 
 ## 📊 STATISTIQUES DOCUMENTATION
 
 ### **Fichiers**
-- **Total fichiers** : 8 (6 numérotés + README + INDEX)
-- **Total lignes** : ~1,500 lignes
+- **Total fichiers** : 9 (7 numérotés + README + INDEX)
+- **Total lignes** : ~1,700 lignes
 
 ### **Par Catégorie**
 - Architecture : 1 fichier
 - Configuration : 2 fichiers
 - Rate Limiting : 1 fichier
 - Synchronisation : 1 fichier
-- Fixes : 1 fichier
+- Fixes & Gestion : 2 fichiers
 
 ---
 
@@ -160,7 +164,7 @@
 |----------|--------|--------|
 | **Mode actif** | MAINTENANCE | ✅ |
 | **Scheduler** | Running | ✅ |
-| **Fichiers collectés** | 259 | ✅ (post-fix qualité) |
+| **Fichiers collectés** | 13,459 | ✅ (collection complète) |
 | **Codes ciblés** | 5 codes prioritaires | ✅ |
 | **Fréquence** | CRON 2h (12×/jour) | ✅ |
 | **Rate limiting** | 20 req/s (Standard) | ✅ |
